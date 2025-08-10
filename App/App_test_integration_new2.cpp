@@ -60,6 +60,19 @@ bool cameraChase = false;
 
 // ---------- Tweakable tuning constants ----------
 const float WHEEL_SCALE   = 0.52f;   // final visual radius = base‑radius (0.5) × 0.52 ≈ 0.26
+// --- Headlights toggle ---
+bool headlightsOn = false;
+int  lastHState   = GLFW_RELEASE; // edge-trigger for 'H'
+// Headlight placement relative to car front (tweak to fit your car proportions)
+// Car local axes: +Y up, +Z forward (with your current setup)
+const float HL_y     = 0.45f;   // height from ground
+const float HL_z     = 1.35f;   // forward from car center to front bumper area
+const float HL_x     = 0.55f;   // half-width offset (left/right)
+const float HL_w     = 0.08f;  // was 0.20f
+const float HL_h     = 0.05f;  // was 0.12f
+const float HL_depth = 0.01f;  // keep the same
+const float GLOW_SCALE = 1.8f;
+const float GLOW_PUSH  = 0.04f; // push a bit forward to avoid z-fighting
 
 // Texture methods
 GLuint loadTexture(const char *filename)
@@ -755,6 +768,57 @@ int main(int argc, char*argv[])
         glm::mat4 projectionDyn = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 200.0f);
         glm::mat4 camMatrix = projectionDyn * view;
 
+        // HEADLIGHT SPOTLIGHT UNIFORMS (set before drawing world)
+        glUseProgram(texturedShaderProgram);
+
+        // Headlight world positions using carPos/carForward/carRight you already computed
+        glm::vec3 hlPosL = carPos + carUp * HL_y + carForward * HL_z - carRight * HL_x;
+        glm::vec3 hlPosR = carPos + carUp * HL_y + carForward * HL_z + carRight * HL_x;
+
+        // Beam direction = car forward
+        glm::vec3 hlDir = glm::normalize(carForward);
+
+        // Spotlight angles and attenuation
+        float innerDeg = 10.0f;    // tighter inner cone
+        float outerDeg = 16.0f;    // softer penumbra
+        float innerCut = cos(glm::radians(innerDeg));
+        float outerCut = cos(glm::radians(outerDeg));
+
+        // Tweak these for throw distance (smaller Kl/Kq => longer reach)
+        float Kc = 1.0f, Kl = 0.08f, Kq = 0.02f; // start with a fairly long reach
+
+        auto LOC = [&](const char* name){ return glGetUniformLocation(texturedShaderProgram, name); };
+
+        // camera (for specular in shader)
+        glUniform3f(LOC("camPos"), cameraPos.x, cameraPos.y, cameraPos.z);
+
+        // toggle
+        glUniform1i(LOC("uUseHeadlights"), headlightsOn ? 1 : 0);
+
+        // Left headlight
+        glUniform3f(LOC("uHL[0].position"),  hlPosL.x, hlPosL.y, hlPosL.z);
+        glUniform3f(LOC("uHL[0].direction"), hlDir.x,  hlDir.y,  hlDir.z);
+        glUniform1f(LOC("uHL[0].innerCut"), innerCut);
+        glUniform1f(LOC("uHL[0].outerCut"), outerCut);
+        glUniform1f(LOC("uHL[0].constant"),  Kc);
+        glUniform1f(LOC("uHL[0].linear"),    Kl);
+        glUniform1f(LOC("uHL[0].quadratic"), Kq);
+        glUniform3f(LOC("uHL[0].color"),     5.0f, 5.0f, 5.0f); // warmish white
+
+        // Right headlight
+        glUniform3f(LOC("uHL[1].position"),  hlPosR.x, hlPosR.y, hlPosR.z);
+        glUniform3f(LOC("uHL[1].direction"), hlDir.x,  hlDir.y,  hlDir.z);
+        glUniform1f(LOC("uHL[1].innerCut"), innerCut);
+        glUniform1f(LOC("uHL[1].outerCut"), outerCut);
+        glUniform1f(LOC("uHL[1].constant"),  Kc);
+        glUniform1f(LOC("uHL[1].linear"),    Kl);
+        glUniform1f(LOC("uHL[1].quadratic"), Kq);
+        glUniform3f(LOC("uHL[1].color"),     5.0f, 5.0f, 5.0f);
+
+        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "camMatrix"), 1, GL_FALSE, glm::value_ptr(camMatrix));
+
+
+
 
         // --- CLOUDS DRAWING (before other objects) ---
         glUseProgram(cloudShaderProgram);
@@ -1043,6 +1107,56 @@ int main(int argc, char*argv[])
             }
         }
 
+        // --- HEADLIGHTS (square quads), toggled by H ---
+        if (headlightsOn) {
+            // Additive blend for a "light" feel
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+            glUseProgram(texturedShaderProgram);
+            glActiveTexture(GL_TEXTURE0);
+
+            // Use an existing bright texture; your yellow is fine.
+            // (If you later add a dedicated "headlight.png" with soft edges, bind it here instead.)
+            glBindTexture(GL_TEXTURE_2D, birdTexture);
+            glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
+
+            // Left & Right headlights (two quads)
+            for (int side = -1; side <= 1; side += 2) {
+                glm::vec3 localPos(side * HL_x, HL_y, HL_z);
+
+                // Start in car space, then orient: our quad is XY plane @ z=0 facing +Z already,
+                // so no extra rotation needed beyond carWorld (it faces car forward).
+                glm::mat4 hlModel =
+                    carWorld *
+                    glm::translate(glm::mat4(1.0f), localPos) *
+                    glm::scale(glm::mat4(1.0f), glm::vec3(HL_w, HL_h, HL_depth));
+
+                glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"),
+                                1, GL_FALSE, glm::value_ptr(hlModel));
+
+                // Draw the unit quad (reusing cloudVAO: 4 verts, triangle strip)
+                glBindVertexArray(cloudVAO);
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            }
+            for (int side = -1; side <= 1; side += 2) {
+                glm::vec3 localPos(side * HL_x, HL_y, HL_z + GLOW_PUSH);
+
+                glm::mat4 glowModel =
+                    carWorld *
+                    glm::translate(glm::mat4(1.0f), localPos) *
+                    glm::scale(glm::mat4(1.0f), glm::vec3(HL_w * GLOW_SCALE, HL_h * GLOW_SCALE, HL_depth));
+
+                glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"),
+                                1, GL_FALSE, glm::value_ptr(glowModel));
+                glBindVertexArray(cloudVAO);
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            }
+
+            glDisable(GL_BLEND);
+        }
+
+
 
         // // Draw the Bird model
 
@@ -1085,6 +1199,13 @@ int main(int argc, char*argv[])
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(window, true);
         
+        // --- Toggle headlights with H (edge triggered) ---
+        int hNow = glfwGetKey(window, GLFW_KEY_H);
+        if (hNow == GLFW_PRESS && lastHState == GLFW_RELEASE) {
+            headlightsOn = !headlightsOn;
+        }
+        lastHState = hNow;
+
 
 
 
