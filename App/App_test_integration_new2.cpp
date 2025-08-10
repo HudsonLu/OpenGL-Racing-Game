@@ -660,9 +660,9 @@ int main(int argc, char*argv[])
 
         // heading from yaw
         glm::vec3 carForward(
-            -sinf(glm::radians(carYaw)),  // X
+            sinf(glm::radians(carYaw)),   // X   (NOTE: removed the minus sign)
             0.0f,
-            cosf(glm::radians(carYaw))   // Z
+            cosf(glm::radians(carYaw))    // Z
         );
 
         // move **rear axle** along heading
@@ -704,8 +704,8 @@ int main(int argc, char*argv[])
         float phi = radians(cameraVerticalAngle);
         
         cameraFront = vec3(cosf(phi)*cosf(theta), sinf(phi), -cosf(phi)*sinf(theta));
-        vec3 cameraSide = cross(cameraFront, vec3(0.0f, 1.0f, 0.0f));
-        glm::normalize(cameraSide);
+        vec3 cameraSide = glm::normalize(cross(cameraFront, vec3(0.0f, 1.0f, 0.0f)));
+
 
 
         // Speed multiplier for shift
@@ -1003,7 +1003,7 @@ int main(int argc, char*argv[])
         // Body (add a 180° if your mesh faces +Z and you want it to face -Z)
         glm::mat4 bodyModel = carWorld
             * glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.25f, 0))
-            * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0,1,0))  // keep if your mesh needs it
+            // * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0,1,0))  // keep if your mesh needs it
             * glm::scale(glm::mat4(1.0f), glm::vec3(1.35f, 0.38f, 2.7f));
         glBindTexture(GL_TEXTURE_2D, carTexture);
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(bodyModel));
@@ -1013,7 +1013,7 @@ int main(int argc, char*argv[])
         // Cabin (same parent)
         glm::mat4 cabinModel = carWorld
             * glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.55f, 0))
-            * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0,1,0))  // keep if needed
+            //* glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0,1,0))  // keep if needed
             * glm::scale(glm::mat4(1.0f), glm::vec3(0.75f, 0.4f, 2.0f));
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(cabinModel));
         glBindVertexArray(cabinVAO);
