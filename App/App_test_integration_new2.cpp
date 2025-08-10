@@ -49,7 +49,7 @@ float carYaw = 0.0f;
 float wheelAngle = 0.0f;
 float steerAngle = 0.0f;
 GLsizei wheelIndexCount;
-
+glm::vec3 rearPos = glm::vec3(0.0f, 0.0f, 5.0f); 
 // Tweakables to match the car-physics snippet
 const float MAX_STEER_DEG = 25.0f;
 const float WHEEL_RADIUS  = 0.26f;   // ≈ base 0.5 * WHEEL_SCALE
@@ -651,28 +651,38 @@ int main(int argc, char*argv[])
         steerAngle = glm::clamp(steerAngle, -MAX_STEER_DEG, MAX_STEER_DEG);
 
         // ----- Bicycle model: yaw the body about rear axle -----
-        {
-            float steerRad = glm::radians(steerAngle);
-            float yawRate  = (fabs(steerRad) < 1e-4f) ? 0.0f : (v / WHEELBASE) * tanf(steerRad); // rad/s
-            carYaw += glm::degrees(yawRate) * deltaTime; // deg
-        }
+        // v from I/K, steerAngle from J/L as you already have
+        float steerRad = glm::radians(steerAngle);
 
-        // ----- Move along the body-forward direction (mesh faces -Z locally) -----
+        // update yaw (bicycle model)
+        float yawRate  = (fabs(steerRad) < 1e-4f) ? 0.0f : (v / WHEELBASE) * tanf(steerRad);
+        carYaw += glm::degrees(yawRate) * deltaTime;
+
+        // heading from yaw
         glm::vec3 carForward(
-            -sinf(glm::radians(carYaw)),
+            -sinf(glm::radians(carYaw)),  // X
             0.0f,
-            cosf(glm::radians(carYaw))
+            cosf(glm::radians(carYaw))   // Z
         );
-        carPos += carForward * (v * deltaTime);
 
+        // move **rear axle** along heading
+        rearPos += carForward * (v * deltaTime);
+
+        // derive car center from rear axle
+        glm::vec3 carPos = rearPos + carForward * (WHEELBASE * 0.5f);
+
+        // (optional) also make right/up if you need them
+        glm::vec3 carRight = glm::normalize(glm::cross(glm::vec3(0,1,0), carForward));
+        glm::vec3 carUp(0,1,0);
+
+    
         // ----- Wheel spin from linear travel -----
         {
             const float degPerUnit = 360.0f / (2.0f * float(M_PI) * WHEEL_RADIUS);
             wheelAngle += (v * deltaTime) * degPerUnit * (-1.0f); // flip sign if your mesh needs it
         }
 
-                // Camera controls
-
+        // Camera controls
         double mousePosX, mousePosY;
         glfwGetCursorPos(window, &mousePosX, &mousePosY);
         
@@ -699,22 +709,13 @@ int main(int argc, char*argv[])
 
 
         // Speed multiplier for shift
-        float speedMultiplier = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ? 3.0f : 1.0f;
-
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS){
-            cameraPos += cameraFront * deltaTime * 1.0f * speedMultiplier; // Move forward
-        }
-
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS){
-            cameraPos -= cameraFront * deltaTime * 1.0f * speedMultiplier; // Move backward
-        }
-
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS){
-            cameraPos -= cameraSide * deltaTime * 1.0f * speedMultiplier; // Move left
-        } 
-        
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS){
-            cameraPos += cameraSide * deltaTime * 1.0f * speedMultiplier; // Move right
+        // Only move free camera in non‑chase modes
+        if (!cameraChase) {
+            float speedMultiplier = (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) ? 3.0f : 1.0f;
+            if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) cameraPos += cameraFront * deltaTime * 1.0f * speedMultiplier;
+            if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) cameraPos -= cameraFront * deltaTime * 1.0f * speedMultiplier;
+            if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) cameraPos -= glm::normalize(glm::cross(cameraFront, glm::vec3(0,1,0))) * deltaTime * 1.0f * speedMultiplier;
+            if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) cameraPos += glm::normalize(glm::cross(cameraFront, glm::vec3(0,1,0))) * deltaTime * 1.0f * speedMultiplier;
         }
 
         // 1st person and 3rd person camera toggle
@@ -732,11 +733,11 @@ int main(int argc, char*argv[])
         }
 
         if (cameraChase) {
-            // Use the carForward we computed in the car block
+            // “behind & a bit to the side” relative to the CAR, not the camera
             glm::vec3 up(0,1,0);
-            glm::vec3 target = carPos + glm::vec3(0.0f, 0.6f, 0.0f);
+            glm::vec3 target = carPos + glm::vec3(0, 0.6f, 0);
             glm::vec3 eye    = target - glm::normalize(carForward) * 3.5f + glm::vec3(0,1,0) * 1.2f;
-            view = glm::lookAt(eye, target + glm::normalize(carForward) * 2.0f, up);
+            view = glm::lookAt(eye, target + glm::normalize(carForward) * 2.0f, glm::vec3(0,1,0));
         } else if (cameraFirstPerson){
             view = lookAt(cameraPos,  // eye
                                  cameraPos + cameraFront,  // center
@@ -994,48 +995,54 @@ int main(int argc, char*argv[])
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(curbR));
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
-        // // Car Body
-        glm::mat4 bodyModel = glm::translate(glm::mat4(1.0f), carPos + glm::vec3(0, 0.25f, 0));
-        bodyModel = glm::rotate(bodyModel, glm::radians(180.0f), glm::vec3(0, 1, 0));
-        bodyModel = glm::scale(bodyModel, glm::vec3(1.35f, 0.38f, 2.7f));
+        // Car world (body heading)
+        glm::mat4 carWorld =
+            glm::translate(glm::mat4(1.0f), carPos) *
+            glm::rotate(glm::mat4(1.0f), glm::radians(carYaw), glm::vec3(0,1,0));
+
+        // Body (add a 180° if your mesh faces +Z and you want it to face -Z)
+        glm::mat4 bodyModel = carWorld
+            * glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.25f, 0))
+            * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0,1,0))  // keep if your mesh needs it
+            * glm::scale(glm::mat4(1.0f), glm::vec3(1.35f, 0.38f, 2.7f));
         glBindTexture(GL_TEXTURE_2D, carTexture);
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(bodyModel));
         glBindVertexArray(carBodyVAO);
         glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
 
-        // Cabin
-        glm::mat4 cabinModel = glm::translate(glm::mat4(1.0f), carPos + glm::vec3(0, 0.55f, 0));
-        cabinModel = glm::rotate(cabinModel, glm::radians(180.0f), glm::vec3(0, 1, 0));
-        cabinModel = glm::scale(cabinModel, glm::vec3(0.75f, 0.4f, 2.0f));
+        // Cabin (same parent)
+        glm::mat4 cabinModel = carWorld
+            * glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.55f, 0))
+            * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0,1,0))  // keep if needed
+            * glm::scale(glm::mat4(1.0f), glm::vec3(0.75f, 0.4f, 2.0f));
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(cabinModel));
         glBindVertexArray(cabinVAO);
         glDrawElements(GL_TRIANGLES, 30, GL_UNSIGNED_INT, 0);
 
-        // // Wheels
-        float wheelX = 0.75f, wheelZ = 1.10f;
-        for (int i = -1; i <= 1; i += 2) {
-            for (int j = -1; j <= 1; j += 2) {
-                glm::vec3 offset(i * wheelX, WHEEL_SCALE * 0.5f, j * wheelZ);
-                glm::mat4 wheelModel = glm::translate(glm::mat4(1.0f), carPos + offset);
+        // Wheels (front steer Y; align Z->X; spin Z; scale)
+        glBindTexture(GL_TEXTURE_2D, tireTexture);
+        const float wheelX = 0.75f, wheelZ = 1.10f;
 
-                // 1) steer the whole knuckle around Y (front only)
-                if (j == 1) {
-                    wheelModel = glm::rotate(wheelModel, glm::radians(steerAngle), glm::vec3(0, 1, 0));
+        for (int i = -1; i <= 1; i += 2) {       // left/right
+            for (int j = -1; j <= 1; j += 2) {   // back/front
+                bool isFront = (j == 1);
+                glm::vec3 hubOffset(i * wheelX, WHEEL_SCALE * 0.5f, j * wheelZ);
+
+                glm::mat4 M = carWorld * glm::translate(glm::mat4(1.0f), hubOffset);
+
+                if (isFront) {
+                    M *= glm::rotate(glm::mat4(1.0f), glm::radians(steerAngle), glm::vec3(0,1,0));
                 }
+                M *= glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0,1,0)); // Z->X
+                M *= glm::rotate(glm::mat4(1.0f), glm::radians(wheelAngle), glm::vec3(0,0,1)); // spin axle
+                M *= glm::scale(glm::mat4(1.0f), glm::vec3(WHEEL_SCALE));
 
-                // 2) align generated cylinder’s Z-axis to X-axis (−90° about Y)
-                wheelModel = glm::rotate(wheelModel, glm::radians(-90.0f), glm::vec3(0, 1, 0));
-
-                // 3) spin around LOCAL Z (the axle)
-                wheelModel = glm::rotate(wheelModel, glm::radians(wheelAngle), glm::vec3(0, 0, 1));
-
-                wheelModel = glm::scale(wheelModel, glm::vec3(WHEEL_SCALE));
-                glBindTexture(GL_TEXTURE_2D, tireTexture);
-                glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(wheelModel));
+                glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(M));
                 glBindVertexArray(wheelVAO);
                 glDrawElements(GL_TRIANGLES, wheelIndexCount, GL_UNSIGNED_INT, 0);
             }
         }
+
 
         // // Draw the Bird model
 
