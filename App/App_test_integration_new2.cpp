@@ -50,6 +50,14 @@ float wheelAngle = 0.0f;
 float steerAngle = 0.0f;
 GLsizei wheelIndexCount;
 
+// Tweakables to match the car-physics snippet
+const float MAX_STEER_DEG = 25.0f;
+const float WHEEL_RADIUS  = 0.26f;   // ≈ base 0.5 * WHEEL_SCALE
+const float WHEELBASE     = 2.20f;   // distance rear axle -> front axle
+
+// Optional: third-person chase toggle
+bool cameraChase = false;
+
 // ---------- Tweakable tuning constants ----------
 const float WHEEL_SCALE   = 0.52f;   // final visual radius = base‑radius (0.5) × 0.52 ≈ 0.26
 
@@ -612,6 +620,141 @@ int main(int argc, char*argv[])
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear the screen
 
+        
+        // Car commands
+        // ----- Car input: throttle (I/K) -----
+        const float speed = 5.0f;     // units/sec
+        float v = 0.0f;               // signed forward speed (body frame)
+        bool iHeld = glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS;
+        bool kHeld = glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS;
+        if (iHeld) v =  speed;
+        if (kHeld) v = -speed;
+        bool moving = fabs(v) > 1e-3f;
+
+        // ----- Steering: gradual; NO auto-center when stopped -----
+        const float STEER_RATE       = 120.0f;  // deg/sec while holding J/L
+        const float RETURN_RATE_BASE = 80.0f;   // deg/sec toward center (when moving)
+
+        bool jHeld = glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS;
+        bool lHeld = glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS;
+
+        if (jHeld && !lHeld) {
+            steerAngle += STEER_RATE * deltaTime;     // left
+        } else if (lHeld && !jHeld) {
+            steerAngle -= STEER_RATE * deltaTime;     // right
+        } else if (moving) {
+            // Only recenter while moving; scale with speed magnitude
+            float returnRate = RETURN_RATE_BASE * (fabs(v) / speed);
+            if (steerAngle > 0.0f)      steerAngle = glm::max(0.0f, steerAngle - returnRate * deltaTime);
+            else if (steerAngle < 0.0f) steerAngle = glm::min(0.0f, steerAngle + returnRate * deltaTime);
+        }
+        steerAngle = glm::clamp(steerAngle, -MAX_STEER_DEG, MAX_STEER_DEG);
+
+        // ----- Bicycle model: yaw the body about rear axle -----
+        {
+            float steerRad = glm::radians(steerAngle);
+            float yawRate  = (fabs(steerRad) < 1e-4f) ? 0.0f : (v / WHEELBASE) * tanf(steerRad); // rad/s
+            carYaw += glm::degrees(yawRate) * deltaTime; // deg
+        }
+
+        // ----- Move along the body-forward direction (mesh faces -Z locally) -----
+        glm::vec3 carForward(
+            -sinf(glm::radians(carYaw)),
+            0.0f,
+            cosf(glm::radians(carYaw))
+        );
+        carPos += carForward * (v * deltaTime);
+
+        // ----- Wheel spin from linear travel -----
+        {
+            const float degPerUnit = 360.0f / (2.0f * float(M_PI) * WHEEL_RADIUS);
+            wheelAngle += (v * deltaTime) * degPerUnit * (-1.0f); // flip sign if your mesh needs it
+        }
+
+                // Camera controls
+
+        double mousePosX, mousePosY;
+        glfwGetCursorPos(window, &mousePosX, &mousePosY);
+        
+        double dx = mousePosX - lastMousePosX;
+        double dy = mousePosY - lastMousePosY;
+        
+        lastMousePosX = mousePosX;
+        lastMousePosY = mousePosY;
+
+        // Convert to spherical coordinates
+        const float cameraAngularSpeed = 8.0f;
+        cameraHorizontalAngle -= dx * cameraAngularSpeed * deltaTime;
+        cameraVerticalAngle   -= dy * cameraAngularSpeed * deltaTime;
+        
+        // Clamp vertical angle to [-85, 85] degrees
+        cameraVerticalAngle = std::max(-85.0f, std::min(85.0f, cameraVerticalAngle));
+        
+        float theta = radians(cameraHorizontalAngle);
+        float phi = radians(cameraVerticalAngle);
+        
+        cameraFront = vec3(cosf(phi)*cosf(theta), sinf(phi), -cosf(phi)*sinf(theta));
+        vec3 cameraSide = cross(cameraFront, vec3(0.0f, 1.0f, 0.0f));
+        glm::normalize(cameraSide);
+
+
+        // Speed multiplier for shift
+        float speedMultiplier = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ? 3.0f : 1.0f;
+
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS){
+            cameraPos += cameraFront * deltaTime * 1.0f * speedMultiplier; // Move forward
+        }
+
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS){
+            cameraPos -= cameraFront * deltaTime * 1.0f * speedMultiplier; // Move backward
+        }
+
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS){
+            cameraPos -= cameraSide * deltaTime * 1.0f * speedMultiplier; // Move left
+        } 
+        
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS){
+            cameraPos += cameraSide * deltaTime * 1.0f * speedMultiplier; // Move right
+        }
+
+        // 1st person and 3rd person camera toggle
+        
+        if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) {
+            cameraFirstPerson = true;
+            cameraChase = false;
+        }
+        if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) {
+            cameraFirstPerson = false;
+            cameraChase = false;
+        }
+        if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) {
+            cameraChase = true;   // new chase mode
+        }
+
+        if (cameraChase) {
+            // Use the carForward we computed in the car block
+            glm::vec3 up(0,1,0);
+            glm::vec3 target = carPos + glm::vec3(0.0f, 0.6f, 0.0f);
+            glm::vec3 eye    = target - glm::normalize(carForward) * 3.5f + glm::vec3(0,1,0) * 1.2f;
+            view = glm::lookAt(eye, target + glm::normalize(carForward) * 2.0f, up);
+        } else if (cameraFirstPerson){
+            view = lookAt(cameraPos,  // eye
+                                 cameraPos + cameraFront,  // center
+                                 cameraUp ); // up
+        } else{
+            float radius = 5.0f;
+            glm::vec3 position = cameraPos - radius * cameraFront; // position is on a sphere around the camera position
+            view = lookAt(position,  // eye
+                                 position + cameraFront,  // center
+                                 cameraUp ); // up
+        }
+
+        int winW=0, winH=0; glfwGetFramebufferSize(window, &winW, &winH);
+        float aspect = (winH > 0) ? float(winW)/float(winH) : 4.0f/3.0f;
+        glm::mat4 projectionDyn = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 200.0f);
+        glm::mat4 camMatrix = projectionDyn * view;
+
+
         // --- CLOUDS DRAWING (before other objects) ---
         glUseProgram(cloudShaderProgram);
         GLuint textureSamplerLocation = glGetUniformLocation(cloudShaderProgram, "textureSampler");
@@ -652,9 +795,6 @@ int main(int argc, char*argv[])
         glm::mat4 floorModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.01f, 0.0f))
                         * glm::scale(glm::mat4(1.0f), glm::vec3(10.0f, 0.02f, 10.0f));
 
-        // Compute view and projection matrices (update if camera moves)
-        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
-        glm::mat4 camMatrix = projection * view;
 
         // Set uniforms
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "camMatrix"), 1, GL_FALSE, glm::value_ptr(camMatrix));
@@ -877,9 +1017,18 @@ int main(int argc, char*argv[])
             for (int j = -1; j <= 1; j += 2) {
                 glm::vec3 offset(i * wheelX, WHEEL_SCALE * 0.5f, j * wheelZ);
                 glm::mat4 wheelModel = glm::translate(glm::mat4(1.0f), carPos + offset);
-                wheelModel = glm::rotate(wheelModel, glm::radians(90.0f), glm::vec3(0, 1, 0));
-                if (j == 1) wheelModel = glm::rotate(wheelModel, glm::radians(steerAngle), glm::vec3(0, 1, 0));
+
+                // 1) steer the whole knuckle around Y (front only)
+                if (j == 1) {
+                    wheelModel = glm::rotate(wheelModel, glm::radians(steerAngle), glm::vec3(0, 1, 0));
+                }
+
+                // 2) align generated cylinder’s Z-axis to X-axis (−90° about Y)
+                wheelModel = glm::rotate(wheelModel, glm::radians(-90.0f), glm::vec3(0, 1, 0));
+
+                // 3) spin around LOCAL Z (the axle)
                 wheelModel = glm::rotate(wheelModel, glm::radians(wheelAngle), glm::vec3(0, 0, 1));
+
                 wheelModel = glm::scale(wheelModel, glm::vec3(WHEEL_SCALE));
                 glBindTexture(GL_TEXTURE_2D, tireTexture);
                 glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(wheelModel));
@@ -918,20 +1067,7 @@ int main(int argc, char*argv[])
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(secondBird));
         glBindVertexArray(birdData.VAO);
         glDrawElements(GL_TRIANGLES, birdData.indexCount, GL_UNSIGNED_INT, 0); // Draw the second Bird model
-        
-
-        if(cameraFirstPerson){
-            view = lookAt(cameraPos,  // eye
-                                 cameraPos + cameraFront,  // center
-                                 cameraUp ); // up
-        } else{
-            float radius = 5.0f;
-            glm::vec3 position = cameraPos - radius * cameraFront; // position is on a sphere around the camera position
-            view = lookAt(position,  // eye
-                                 position + cameraFront,  // center
-                                 cameraUp ); // up
-        }
-
+    
 
         
         
@@ -942,81 +1078,9 @@ int main(int argc, char*argv[])
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(window, true);
         
-        // Camera controls
-
-        double mousePosX, mousePosY;
-        glfwGetCursorPos(window, &mousePosX, &mousePosY);
-        
-        double dx = mousePosX - lastMousePosX;
-        double dy = mousePosY - lastMousePosY;
-        
-        lastMousePosX = mousePosX;
-        lastMousePosY = mousePosY;
-
-        // Convert to spherical coordinates
-        const float cameraAngularSpeed = 8.0f;
-        cameraHorizontalAngle -= dx * cameraAngularSpeed * deltaTime;
-        cameraVerticalAngle   -= dy * cameraAngularSpeed * deltaTime;
-        
-        // Clamp vertical angle to [-85, 85] degrees
-        cameraVerticalAngle = std::max(-85.0f, std::min(85.0f, cameraVerticalAngle));
-        
-        float theta = radians(cameraHorizontalAngle);
-        float phi = radians(cameraVerticalAngle);
-        
-        cameraFront = vec3(cosf(phi)*cosf(theta), sinf(phi), -cosf(phi)*sinf(theta));
-        vec3 cameraSide = cross(cameraFront, vec3(0.0f, 1.0f, 0.0f));
-        glm::normalize(cameraSide);
 
 
-        // Speed multiplier for shift
-        float speedMultiplier = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ? 3.0f : 1.0f;
 
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS){
-            cameraPos += cameraFront * deltaTime * 1.0f * speedMultiplier; // Move forward
-        }
-
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS){
-            cameraPos -= cameraFront * deltaTime * 1.0f * speedMultiplier; // Move backward
-        }
-
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS){
-            cameraPos -= cameraSide * deltaTime * 1.0f * speedMultiplier; // Move left
-        } 
-        
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS){
-            cameraPos += cameraSide * deltaTime * 1.0f * speedMultiplier; // Move right
-        }
-
-        // Car commands
-        float carSpeed = 5.0f * deltaTime;
-        float wheelSpinSpeed = 120.0f * deltaTime;
-
-        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) {
-            carPos += carSpeed * glm::vec3(sin(glm::radians(carYaw)), 0.0f, -cos(glm::radians(carYaw)));
-            wheelAngle -= wheelSpinSpeed;
-        }
-        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) {
-            carPos -= carSpeed * glm::vec3(sin(glm::radians(carYaw)), 0.0f, -cos(glm::radians(carYaw)));
-            wheelAngle += wheelSpinSpeed;
-        }
-
-        // Steering (J = left, L = right)
-        steerAngle = 0.0f;
-        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) steerAngle = 25.0f;
-        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) steerAngle = -25.0f;
-
-        // 1st person and 3rd person camera toggle
-        
-        if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) 
-        {
-            cameraFirstPerson = true;
-        }
-
-        if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) 
-        {
-            cameraFirstPerson = false;
-        }
 
 
     }
