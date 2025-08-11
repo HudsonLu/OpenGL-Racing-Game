@@ -41,7 +41,7 @@ A 3D race environment built using modern OpenGL (3.3 core profile) featuring:
 - `asphalt.jpg`
 - `curb.jpg`
 - `cobblestone.jpg`
-- `moutain.jpg`
+- `mountain.jpg`
 - `car_wrap.jpg`
 - `tires.jpg`
 - `01.png`, `02.png`, `03.png` (clouds)

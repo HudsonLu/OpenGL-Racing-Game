@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <string>
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
@@ -481,7 +482,7 @@ int main(int argc, char*argv[])
     GLuint asphaltTextureID = loadTexture("Textures/asphalt.jpg");
     GLuint curbTextureID = loadTexture("Textures/curb.jpg");
     GLuint cobblestoneTextureID = loadTexture("Textures/cobblestone.jpg");
-    GLuint mountainTextureID = loadTexture("Textures/moutain.jpg"); // rock texture for hills
+    GLuint mountainTextureID = loadTexture("Textures/mountain.jpg"); // rock texture for hills
     GLuint lightPoleTextureID = loadTexture("Textures/Light Pole.png");
     // Load grandstand texture before main loop
     GLuint grandstandTextureID = loadTexture("Textures/generic medium_01_a.png");
@@ -567,11 +568,19 @@ int main(int argc, char*argv[])
 
     // Light variables
 
-    glm::vec4 lightColor(1.0f, 1.0f, 1.0f, 1.0f); // positional light
-    
-    glm::vec3 lightPos(0.0f, 10.0f, 0.0f); // initial position
-    glm::mat4 lightModel = glm::mat4(1.0f);
-    lightModel = glm::translate(lightModel, lightPos);
+    glm::vec3 sunDir   = glm::normalize(glm::vec3(-0.2f, -1.0f, -0.3f));
+    glm::vec3 sunColor = glm::vec3(1.0f, 1.0f, 0.9f);
+
+    std::vector<glm::vec3> lampPositions;
+    for (int i = 0; i < 16; ++i) {
+        glm::vec3 polePosition;
+        if (i < 8) {
+            polePosition = glm::vec3(-8.0f, 5.0f, -7.0f + i * 6.0f);
+        } else {
+            polePosition = glm::vec3(8.0f, 5.0f, -7.0f + (i - 8) * 6.0f);
+        }
+        lampPositions.push_back(polePosition);
+    }
 
     // Camera variables
     glm::vec3 cameraPos   = glm::vec3(0.0f, 1.5f,  5.0f);
@@ -599,8 +608,14 @@ int main(int argc, char*argv[])
 
     //lighting
 
-    glUniform4f(glGetUniformLocation(texturedShaderProgram, "lightColor"), 1.0f, 1.0f, 1.0f, 1.0f);
-    glUniform3f(glGetUniformLocation(texturedShaderProgram, "lightPos"), lightPos.x, lightPos.y, lightPos.z);
+    glUniform3f(glGetUniformLocation(texturedShaderProgram, "sunDir"), sunDir.x, sunDir.y, sunDir.z);
+    glUniform3f(glGetUniformLocation(texturedShaderProgram, "sunColor"), sunColor.x, sunColor.y, sunColor.z);
+    glUniform1i(glGetUniformLocation(texturedShaderProgram, "lampCount"), lampPositions.size());
+    for (int i = 0; i < lampPositions.size(); ++i) {
+        std::string name = "lampPos[" + std::to_string(i) + "]";
+        glUniform3fv(glGetUniformLocation(texturedShaderProgram, name.c_str()), 1, glm::value_ptr(lampPositions[i]));
+    }
+    glUniform3f(glGetUniformLocation(texturedShaderProgram, "lampColor"), 1.0f, 0.95f, 0.8f);
     glUniform3f(glGetUniformLocation(texturedShaderProgram, "camPos"), cameraPos.x, cameraPos.y, cameraPos.z);
 
     // Texture

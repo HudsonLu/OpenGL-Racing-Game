@@ -10,11 +10,17 @@ in vec3 crntPos;
 uniform sampler2D textureSampler;
 
 // Existing point/ambient/spec uniforms you already use
-uniform vec4 lightColor;
-uniform vec3 lightPos;
 uniform vec3 camPos;
 
-// ==== NEW: Headlight spotlights ====
+
+// === Sun and lamp lighting ===
+#define MAX_LAMPS 16
+uniform int lampCount;
+uniform vec3 lampPos[MAX_LAMPS];
+uniform vec3 lampColor;
+uniform vec3 sunDir;
+uniform vec3 sunColor;
+
 struct SpotLight {
     vec3 position;    // world
     vec3 direction;   // world (normalized)
@@ -54,20 +60,30 @@ void main()
 {
     // Base material
     vec3 albedo = texture(textureSampler, vertexUV).rgb;
+    vec3 N = normalize(vertexNormal);
+    vec3 V = normalize(camPos - crntPos);
 
-    // Your existing lighting (ambient + point light + spec)
-    float ambientStrength = 0.20;
-    vec3  N = normalize(vertexNormal);
-    vec3  LdirPoint = normalize(lightPos - crntPos);
-    float diffPoint = max(dot(N, LdirPoint), 0.0);
+    // Directional sunlight with simple shadowing
+    vec3 Lsun = normalize(-sunDir);
+    float diffSun = max(dot(N, Lsun), 0.0);
+    vec3 Rsun = reflect(-Lsun, N);
+    float specSun = pow(max(dot(V, Rsun), 0.0), 16.0);
+    float shadow = diffSun > 0.0 ? 1.0 : 0.2;
+    vec3 lighting = (0.1 * sunColor) + shadow * sunColor * (diffSun + 0.5 * specSun);
 
-    float specularLight = 0.50;
-    vec3  V = normalize(camPos - crntPos);
-    vec3  R = reflect(-LdirPoint, N);
-    float specAmount = pow(max(dot(V, R), 0.0), 8.0);
-    float specPoint   = specAmount * specularLight;
+    // Lamps as point lights
+    for (int i = 0; i < lampCount; ++i) {
+        vec3 Ldir = normalize(lampPos[i] - crntPos);
+        float dist = length(lampPos[i] - crntPos);
+        float atten = 1.0 / (1.0 + 0.09 * dist + 0.032 * dist * dist);
+        float diff = max(dot(N, Ldir), 0.0);
+        vec3 Rlamp = reflect(-Ldir, N);
+        float spec = pow(max(dot(V, Rlamp), 0.0), 32.0);
+        lighting += lampColor * atten * (diff + 0.5 * spec);
+    }
 
-    vec3 color = albedo * lightColor.rgb * (ambientStrength + diffPoint) + lightColor.rgb * specPoint;
+    vec3 color = albedo * lighting;
+
 
     // ==== NEW: add two headlight spot contributions ====
     if (uUseHeadlights) {
