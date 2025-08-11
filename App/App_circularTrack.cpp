@@ -785,7 +785,7 @@ int main(int argc, char*argv[])
         std::string name = "lampPos[" + std::to_string(i) + "]";
         glUniform3fv(glGetUniformLocation(texturedShaderProgram, name.c_str()), 1, glm::value_ptr(lampPositions[i]));
     }
-    glUniform3f(glGetUniformLocation(texturedShaderProgram, "lampColor"), 1.0f, 0.95f, 0.8f);
+    glUniform3f(glGetUniformLocation(texturedShaderProgram, "lampColor"), 2.0f, 1.9f, 1.6f);
     glUniform3f(glGetUniformLocation(texturedShaderProgram, "camPos"), cameraPos.x, cameraPos.y, cameraPos.z);
 
     glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
