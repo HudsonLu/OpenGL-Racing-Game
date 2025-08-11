@@ -24,6 +24,7 @@
 #include <cassert>
 #include <glm/common.hpp>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/random.hpp> // include this to get access to GLM random functions
 #include <cmath>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -691,6 +692,23 @@ int main(int argc, char*argv[])
     };
     float mountainScale = 5.0f;
 
+
+    // Precompute tree transforms around the outer area
+    const int TREE_COUNT = 100;
+    std::vector<glm::mat4> treeTransforms;
+    treeTransforms.reserve(TREE_COUNT);
+    for (int i = 0; i < TREE_COUNT; ++i) {
+        float angle = glm::linearRand(0.0f, glm::two_pi<float>());
+        float radius = glm::linearRand(TRACK_RADIUS + 20.0f, TRACK_RADIUS + 80.0f);
+        glm::vec3 pos = glm::vec3(cos(angle) * radius, 0.0f, sin(angle) * radius);
+        float scale = glm::linearRand(0.8f, 1.3f);
+        float rot = glm::linearRand(0.0f, glm::two_pi<float>());
+        glm::mat4 t = glm::translate(glm::mat4(1.0f), pos) *
+                      glm::rotate(glm::mat4(1.0f), rot, glm::vec3(0,1,0)) *
+                      glm::scale(glm::mat4(1.0f), glm::vec3(scale));
+        treeTransforms.push_back(t);
+    }
+
     // Compile and link shaders here ...
     std::string shaderPathPrefix = "Shaders/";
 
@@ -755,6 +773,8 @@ int main(int argc, char*argv[])
     glUseProgram(texturedShaderProgram);
     glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "camMatrix"), 1, GL_FALSE, glm::value_ptr(projection));
     glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+    GLint instanceMatrixLoc = glGetUniformLocation(texturedShaderProgram, "instanceMatrices[0]");
+    glUniformMatrix4fv(instanceMatrixLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
 
     //lighting
 
@@ -789,6 +809,7 @@ int main(int argc, char*argv[])
     ModelData cybertruckData = loadModelWithAssimp("Models/SUV.obj");
     ModelData birdData = loadModelWithAssimp("Models/Bird.obj");
     ModelData hillData = loadModelWithAssimp("Models/part.obj");
+    ModelData treeData = loadModelWithAssimp("Models/Tree1.obj");
     ModelData lightPoleData = loadModelWithAssimp("Models/Light Pole.obj");
     // Load the grandstand model using the Assimp loader
     ModelData grandstandData = loadModelWithAssimp("Models/generic medium.obj");
@@ -1074,6 +1095,7 @@ int main(int argc, char*argv[])
 
         // Set uniforms
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "camMatrix"), 1, GL_FALSE, glm::value_ptr(camMatrix));
+        glUniformMatrix4fv(instanceMatrixLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(floorModel));
 
         // Bind VAO for the floor and draw
@@ -1094,6 +1116,16 @@ int main(int argc, char*argv[])
             glBindVertexArray(hillData.VAO);
             glDrawElements(GL_TRIANGLES, hillData.indexCount, GL_UNSIGNED_INT, 0);
         }
+
+        // Draw scattered trees
+        glActiveTexture(GL_TEXTURE0);
+        //glBindTexture(GL_TEXTURE_2D, treeTextureID);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
+        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
+        glUniformMatrix4fv(instanceMatrixLoc, (GLsizei)treeTransforms.size(), GL_FALSE, glm::value_ptr(treeTransforms[0]));
+        glBindVertexArray(treeData.VAO);
+        glDrawElementsInstanced(GL_TRIANGLES, treeData.indexCount, GL_UNSIGNED_INT, 0, (GLsizei)treeTransforms.size());
+        glUniformMatrix4fv(instanceMatrixLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
 
         // Draw circular road with curbs
         glActiveTexture(GL_TEXTURE0);

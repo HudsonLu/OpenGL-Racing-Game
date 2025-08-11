@@ -21,6 +21,7 @@
 #include <glm/gtc/matrix_transform.hpp> // include this to create transformation matrices
 #include <glm/gtc/type_ptr.hpp> // include this to convert glm types to OpenGL types
 #include <glm/gtc/constants.hpp> // include this to get access to GLM constants
+#include <glm/gtc/random.hpp> // include this to get access to GLM random functions
 
 #include <cassert>
 #include <glm/common.hpp>
@@ -579,6 +580,7 @@ int main(int argc, char*argv[])
     GLuint carTexture = loadTexture("Textures/car_wrap.jpg");
     GLuint tireTexture = loadTexture("Textures/tires.jpg");
     GLuint birdTexture = loadTexture("Textures/yellow.jpg");
+
 
     
     // Initialize GLEW
