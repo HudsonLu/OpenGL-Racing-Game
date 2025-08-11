@@ -6,6 +6,7 @@
 #include <sstream>
 #include <vector>
 #include <string>
+#include <cmath>
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
@@ -19,6 +20,7 @@
 #include <glm/glm.hpp>  // GLM is an optimized math library with syntax to similar to OpenGL Shading Language
 #include <glm/gtc/matrix_transform.hpp> // include this to create transformation matrices
 #include <glm/gtc/type_ptr.hpp> // include this to convert glm types to OpenGL types
+#include <glm/gtc/constants.hpp> // include this to get access to GLM constants
 
 #include <cassert>
 #include <glm/common.hpp>
@@ -481,6 +483,62 @@ ModelData loadModelWithAssimp(const std::string& path) {
     return { VAO, static_cast<GLsizei>(indices.size()) };
 }
 
+ModelData createSphere(float radius, unsigned int sectorCount = 36, unsigned int stackCount = 18) {
+    std::vector<float> vertices;
+    std::vector<unsigned int> indices;
+
+    for (unsigned int i = 0; i <= stackCount; ++i) {
+        float stackAngle = glm::pi<float>() / 2 - i * glm::pi<float>() / stackCount;
+        float xy = radius * cosf(stackAngle);
+        float z = radius * sinf(stackAngle);
+
+        for (unsigned int j = 0; j <= sectorCount; ++j) {
+            float sectorAngle = j * 2 * glm::pi<float>() / sectorCount;
+            float x = xy * cosf(sectorAngle);
+            float y = xy * sinf(sectorAngle);
+            vertices.push_back(x);
+            vertices.push_back(z);
+            vertices.push_back(y);
+        }
+    }
+
+    for (unsigned int i = 0; i < stackCount; ++i) {
+        unsigned int k1 = i * (sectorCount + 1);
+        unsigned int k2 = k1 + sectorCount + 1;
+
+        for (unsigned int j = 0; j < sectorCount; ++j, ++k1, ++k2) {
+            if (i != 0) {
+                indices.push_back(k1);
+                indices.push_back(k2);
+                indices.push_back(k1 + 1);
+            }
+            if (i != (stackCount - 1)) {
+                indices.push_back(k1 + 1);
+                indices.push_back(k2);
+                indices.push_back(k2 + 1);
+            }
+        }
+    }
+
+    GLuint VAO, VBO, EBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+
+    return { VAO, static_cast<GLsizei>(indices.size()) };
+}
+
+
 int main(int argc, char*argv[])
 {
     // Initialize GLFW and OpenGL version
@@ -521,7 +579,7 @@ int main(int argc, char*argv[])
     GLuint carTexture = loadTexture("Textures/car_wrap.jpg");
     GLuint tireTexture = loadTexture("Textures/tires.jpg");
     GLuint birdTexture = loadTexture("Textures/yellow.jpg");
-    GLuint sunTextureID = loadTexture("Textures/01.png");
+
     
     // Initialize GLEW
     glewExperimental = true; // Needed for core profile
@@ -600,7 +658,7 @@ int main(int argc, char*argv[])
 
     // Light variables
     glm::vec3 sunDir   = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
-    glm::vec3 sunColor = glm::vec3(0.6f, 0.6f, 0.5f);
+    glm::vec3 sunColor = glm::vec3(1.0f, 0.95f, 0.6f);
     // Shadow plane heights and bias
     const float ROAD_Y      = 0.0f;     // asphalt
     const float GRASS_Y     = -0.01f;   // your grass floor
@@ -678,7 +736,7 @@ int main(int argc, char*argv[])
     ModelData lightPoleData = loadModelWithAssimp("Models/Light Pole.obj");
     // Load the grandstand model using the Assimp loader
     ModelData grandstandData = loadModelWithAssimp("Models/generic medium.obj");
-    ModelData sunData = loadModelWithAssimp("Models/semisphere.obj");
+    ModelData sunData = createSphere(1.0f);
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -928,18 +986,19 @@ int main(int argc, char*argv[])
 
         // --- END CLOUDS ---
 
-       glUseProgram(texturedShaderProgram);
-       glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, sunTextureID);
-        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
-        glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
+        glUseProgram(lightShaderProgram);
+        glUniformMatrix4fv(glGetUniformLocation(lightShaderProgram, "camMatrix"), 1, GL_FALSE, glm::value_ptr(camMatrix));
+       
         glm::vec3 sunPos = -sunDir * 100.0f;
         glm::mat4 sunModel = glm::translate(glm::mat4(1.0f), sunPos) *
                              glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
-        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(sunModel));
+        glUniformMatrix4fv(glGetUniformLocation(lightShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(sunModel));
+         glUniform4f(glGetUniformLocation(lightShaderProgram, "lightColor"), 1.0f, 0.9f, 0.3f, 1.0f);
         glBindVertexArray(sunData.VAO);
         glDrawElements(GL_TRIANGLES, sunData.indexCount, GL_UNSIGNED_INT, 0);
 
+        glUseProgram(texturedShaderProgram);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
         // Activate and bind texture unit 0 with your grass texture
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, grassTextureID);
