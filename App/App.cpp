@@ -668,14 +668,34 @@ int main(int argc, char*argv[])
 
 
     std::vector<glm::vec3> lampPositions;
-    for (int i = 0; i < 16; ++i) {
-        glm::vec3 polePosition;
-        if (i < 8) {
-            polePosition = glm::vec3(-8.0f, 5.0f, -7.0f + i * 6.0f);
-        } else {
-            polePosition = glm::vec3(8.0f, 5.0f, -7.0f + (i - 8) * 6.0f);
+    for (int z = -60; z <= 60; z += 20) {
+        int segment = (z + 60) / 20;
+        if (segment % 2 == 0) {
+            lampPositions.emplace_back(-8.0f, 5.0f, (float)z);
+            lampPositions.emplace_back( 8.0f, 5.0f, (float)z);
         }
-        lampPositions.push_back(polePosition);
+    }
+
+    std::vector<glm::vec3> hillPositions;
+    for (float z = -80.0f; z <= 80.0f; z += 20.0f) {
+        hillPositions.emplace_back(-25.0f, 0.0f, z);
+        hillPositions.emplace_back( 25.0f, 0.0f, z);
+    }
+    
+    // Precompute tree transforms scattered outside the hill ring
+    const int TREE_COUNT = 100;
+    std::vector<glm::mat4> treeTransforms;
+    treeTransforms.reserve(TREE_COUNT);
+    for (int i = 0; i < TREE_COUNT; ++i) {
+        float angle = glm::linearRand(0.0f, glm::two_pi<float>());
+        float radius = glm::linearRand(25.0f, 60.0f);
+        glm::vec3 pos = glm::vec3(cos(angle) * radius, 0.0f, sin(angle) * radius);
+        float scale = glm::linearRand(0.8f, 1.3f);
+        float rot = glm::linearRand(0.0f, glm::two_pi<float>());
+        glm::mat4 t = glm::translate(glm::mat4(1.0f), pos) *
+                      glm::rotate(glm::mat4(1.0f), rot, glm::vec3(0.0f, 1.0f, 0.0f)) *
+                      glm::scale(glm::mat4(1.0f), glm::vec3(scale));
+        treeTransforms.push_back(t);
     }
 
     // Camera variables
@@ -701,6 +721,9 @@ int main(int argc, char*argv[])
     glUseProgram(texturedShaderProgram);
     glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "camMatrix"), 1, GL_FALSE, glm::value_ptr(projection));
     glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+
+    GLint instanceMatrixLoc = glGetUniformLocation(texturedShaderProgram, "instanceMatrices[0]");
+    glUniformMatrix4fv(instanceMatrixLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
 
     //lighting
 
@@ -735,6 +758,7 @@ int main(int argc, char*argv[])
     ModelData cybertruckData = loadModelWithAssimp("Models/SUV.obj");
     ModelData birdData = loadModelWithAssimp("Models/Bird.obj");
     ModelData hillData = loadModelWithAssimp("Models/part.obj");
+    ModelData treeData = loadModelWithAssimp("Models/Tree1.obj");
     ModelData lightPoleData = loadModelWithAssimp("Models/Light Pole.obj");
     // Load the grandstand model using the Assimp loader
     ModelData grandstandData = loadModelWithAssimp("Models/generic medium.obj");
@@ -945,6 +969,7 @@ int main(int argc, char*argv[])
         glUniform3f(LOC("uHL[1].color"),     5.0f, 5.0f, 5.0f);
 
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "camMatrix"), 1, GL_FALSE, glm::value_ptr(camMatrix));
+        glUniformMatrix4fv(instanceMatrixLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
 
 
         // Decide which light direction casts the planar shadows
@@ -1032,91 +1057,24 @@ int main(int argc, char*argv[])
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, mountainTextureID);
         glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
-        for (int i = 0; i < 24; ++i) {
-            glm::vec3 hillPosition;
-            float hillScale = 0.5f;
-            if (i == 0) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, -7.0f);
-                hillScale = 0.5f;
-            } else if (i == 1) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, -3.0f);
-                hillScale = 0.5f;
-            } else if (i == 2) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 1.0f);
-                hillScale = 0.5f;
-            } else if (i == 3) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 10.0f);
-                hillScale = 0.5f;
-            } else if (i == 4) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 14.0f);
-                hillScale = 0.5f;
-            } else if (i == 5) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 18.0f);
-                hillScale = 0.5f;
-            } else if (i == 6) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 22.0f);
-                hillScale = 0.5f;
-            } else if (i == 7) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 26.0f);
-                hillScale = 0.5f;
-            } else if (i == 8) {
-                hillPosition = glm::vec3(15.0f, 0.0f, -7.0f);
-                hillScale = 0.5f;
-            } else if (i == 9) {
-                hillPosition = glm::vec3(15.0f, 0.0f, -3.0f);
-                hillScale = 0.5f;
-            } else if (i == 10) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 1.0f);
-                hillScale = 0.5f;
-            } else if (i == 11) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 10.0f);
-                hillScale = 0.5f;
-            } else if (i == 12) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 14.0f);
-                hillScale = 0.5f;
-            } else if (i == 13) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 18.0f);
-                hillScale = 0.5f;
-            } else if (i == 14) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 22.0f);
-                hillScale = 0.5f;
-            } else if (i == 15) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 26.0f);
-                hillScale = 0.5f;
-            } else if (i == 16) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 30.0f);
-                hillScale = 0.5f;
-            } else if (i == 17) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 34.0f);
-                hillScale = 0.5f;
-            } else if (i == 18) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 38.0f);
-                hillScale = 0.5f;
-            } else if (i == 19) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 42.0f);
-                hillScale = 0.5f;
-            } else if (i == 20) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 30.0f);
-                hillScale = 0.5f;
-            } else if (i == 21) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 34.0f);
-                hillScale = 0.5f;
-            } else if (i == 22) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 38.0f);
-                hillScale = 0.5f;
-            } else if (i == 23) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 42.0f);
-                hillScale = 0.5f;
-            }
-
-
-            glm::mat4 hillModel = glm::translate(glm::mat4(1.0f), hillPosition) *
-                                  glm::scale(glm::mat4(1.0f), glm::vec3(hillScale));
-
-             glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(hillModel));
-            glBindVertexArray(hillData.VAO); 
+        for (const auto& hillPos : hillPositions) {
+            glm::mat4 hillModel = glm::translate(glm::mat4(1.0f), hillPos) *
+                                  glm::scale(glm::mat4(1.0f), glm::vec3(1.5f));
+            glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(hillModel));
+            glBindVertexArray(hillData.VAO);
             glDrawElements(GL_TRIANGLES, hillData.indexCount, GL_UNSIGNED_INT, 0);
         }
+
+        // Draw instanced trees
+        glActiveTexture(GL_TEXTURE0);
+        //glBindTexture(GL_TEXTURE_2D, treeTextureID);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
+        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
+        glUniformMatrix4fv(instanceMatrixLoc, (GLsizei)treeTransforms.size(), GL_FALSE, glm::value_ptr(treeTransforms[0]));
+        glBindVertexArray(treeData.VAO);
+        glDrawElementsInstanced(GL_TRIANGLES, treeData.indexCount, GL_UNSIGNED_INT, 0, (GLsizei)treeTransforms.size());
+        glUniformMatrix4fv(instanceMatrixLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
+
 
         // // Draw the road
         
@@ -1131,8 +1089,8 @@ int main(int argc, char*argv[])
 
 
         // Compute your road model matrix
-        glm::mat4 roadModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -50.0f)) *
-                            glm::scale(glm::mat4(1.0f), glm::vec3(3.0f, 0.01f, 100.0f));
+        glm::mat4 roadModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -200.0f)) *
+                            glm::scale(glm::mat4(1.0f), glm::vec3(3.0f, 0.01f, 400.0f));
 
         // Set your uniform
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(roadModel));
@@ -1148,15 +1106,11 @@ int main(int argc, char*argv[])
             glBindTexture(GL_TEXTURE_2D, lightPoleTextureID);
             glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
 
-            for (int i = 0; i < 16; ++i) {
-                glm::vec3 polePosition;
+            for (const auto& lampPos : lampPositions) {
+                glm::vec3 polePosition = lampPos;
+                polePosition.y = 3.0f;
                 float poleScale = 0.3f;
 
-                if (i < 8) {
-                    polePosition = glm::vec3(-8.0f, 3.0f, -7.0f + i * 6.0f);
-                } else {
-                    polePosition = glm::vec3(8.0f, 3.0f, -7.0f + (i - 8) * 6.0f);
-                }
 
                 glm::mat4 poleModel = glm::translate(glm::mat4(1.0f), polePosition) *
                                     glm::scale(glm::mat4(1.0f), glm::vec3(poleScale));
@@ -1200,7 +1154,7 @@ int main(int argc, char*argv[])
 
         // // Draw the grandstands after rendering the light poles, rotating textures for variety
         std::vector<glm::vec3> grandstandPositions;
-        for (float z = -45.0f; z <= 45.0f; z += 10.0f) {
+        for (float z = -75.0f; z <= 75.0f; z += 10.0f) {
             grandstandPositions.push_back(glm::vec3(-6.0f, 0.0f, z)); // Left side
             grandstandPositions.push_back(glm::vec3( 6.0f, 0.0f, z)); // Right side
         }
@@ -1268,7 +1222,7 @@ int main(int argc, char*argv[])
         glm::mat4 curbL = glm::translate(glm::mat4(1.0f),
                         glm::vec3(-offset, 0.003f, 0.0f)) *
                         glm::scale(glm::mat4(1.0f),
-                        glm::vec3(curbW, 0.01f, 100.0f));
+                        glm::vec3(curbW, 0.01f, 400.0f));
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(curbL));
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
@@ -1276,7 +1230,7 @@ int main(int argc, char*argv[])
         glm::mat4 curbR = glm::translate(glm::mat4(1.0f),
                         glm::vec3( offset, 0.003f, 0.0f)) *
                         glm::scale(glm::mat4(1.0f),
-                        glm::vec3(curbW, 0.01f, 100.0f));
+                        glm::vec3(curbW, 0.01f, 400.0f));
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(curbR));
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
