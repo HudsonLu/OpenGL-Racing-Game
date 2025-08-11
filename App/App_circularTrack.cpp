@@ -20,10 +20,11 @@
 #include <glm/glm.hpp>  // GLM is an optimized math library with syntax to similar to OpenGL Shading Language
 #include <glm/gtc/matrix_transform.hpp> // include this to create transformation matrices
 #include <glm/gtc/type_ptr.hpp> // include this to convert glm types to OpenGL types
-#include <glm/gtc/constants.hpp> // include this to get access to GLM constants
 
 #include <cassert>
 #include <glm/common.hpp>
+#include <glm/gtc/constants.hpp>
+#include <cmath>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
@@ -177,6 +178,38 @@ GLuint createTexturedVAO(float* vertices, size_t size) {
     glBindVertexArray(0); // unbind VAO
 
     return VAO;
+}
+
+// Generate a ring mesh between inner and outer radii using a triangle strip
+GLuint createRingVAO(float innerRadius, float outerRadius, int segments,
+                     float tiling, const glm::vec3 &color,
+                     GLsizei &vertexCount) {
+    std::vector<float> vertices;
+    for (int i = 0; i <= segments; ++i) {
+        float theta = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(segments);
+        float c = cos(theta);
+        float s = sin(theta);
+        float texV = theta / glm::two_pi<float>() * tiling;
+
+        // Outer edge vertex
+        vertices.insert(vertices.end(), {
+            c * outerRadius, 0.0f, s * outerRadius,
+            color.r, color.g, color.b,
+            1.0f, texV,
+            0.0f, 1.0f, 0.0f
+        });
+
+        // Inner edge vertex
+        vertices.insert(vertices.end(), {
+            c * innerRadius, 0.0f, s * innerRadius,
+            color.r, color.g, color.b,
+            0.0f, texV,
+            0.0f, 1.0f, 0.0f
+        });
+    }
+
+    vertexCount = (segments + 1) * 2;
+    return createTexturedVAO(vertices.data(), vertices.size() * sizeof(float));
 }
 
 
@@ -482,7 +515,6 @@ ModelData loadModelWithAssimp(const std::string& path) {
 
     return { VAO, static_cast<GLsizei>(indices.size()) };
 }
-
 ModelData createSphere(float radius, unsigned int sectorCount = 36, unsigned int stackCount = 18) {
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
@@ -537,7 +569,6 @@ ModelData createSphere(float radius, unsigned int sectorCount = 36, unsigned int
 
     return { VAO, static_cast<GLsizei>(indices.size()) };
 }
-
 
 int main(int argc, char*argv[])
 {
@@ -633,18 +664,55 @@ int main(int argc, char*argv[])
     // Sky blue background
     // Slightly dimmer sky so clouds and lighting stand out
     glClearColor(0.4f, 0.6f, 0.8f, 1.0f);
-    
+
+    // --- Circular track parameters ---
+    const float TRACK_RADIUS   = 40.0f;
+    const int   TRACK_SEGMENTS = 256;
+    const float ROAD_WIDTH     = 8.0f;
+    const float CURB_WIDTH     = 0.30f;
+
+    // Precompute lamp posts placed evenly around the track
+    std::vector<glm::vec3> lampPositions;
+    const int LAMP_COUNT = 16;
+    for (int i = 0; i < LAMP_COUNT; ++i) {
+        float theta = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(LAMP_COUNT);
+        glm::vec3 pos(
+            sin(theta) * (TRACK_RADIUS + 4.0f),
+            5.0f,
+            cos(theta) * (TRACK_RADIUS + 4.0f)
+        );
+        lampPositions.push_back(pos);
+    }
+
+    // Mountains placed far from the track
+    std::vector<glm::vec3> mountainPositions = {
+        glm::vec3(0.0f, -5.0f,  TRACK_RADIUS + 80.0f),
+        glm::vec3(0.0f, -5.0f, -TRACK_RADIUS - 80.0f)
+    };
+    float mountainScale = 5.0f;
+
     // Compile and link shaders here ...
     std::string shaderPathPrefix = "Shaders/";
 
     int cloudShaderProgram = loadSHADER(shaderPathPrefix + "cloudVert.glsl", shaderPathPrefix + "cloudFrag.glsl");
     int texturedShaderProgram = loadSHADER(shaderPathPrefix + "textureVertex.glsl", shaderPathPrefix + "textureFragment.glsl");
-    int lightShaderProgram = loadSHADER(shaderPathPrefix + "lightingVert.glsl", shaderPathPrefix + "lightingFrag.glsl");    
-    
+    int lightShaderProgram = loadSHADER(shaderPathPrefix + "lightingVert.glsl", shaderPathPrefix + "lightingFrag.glsl");
+
     // Define and upload geometry to the GPU here ...
     GLuint floorVAO = createTexturedVAO(floorVertices,sizeof(floorVertices));
-    GLuint roadVAO = createTexturedVAO(roadVertices, sizeof(roadVertices));
-    GLuint curbVAO = createTexturedVAO(const_cast<float*>(curbVerts),sizeof(curbVerts));
+    GLsizei roadVertCount, curbInnerVertCount, curbOuterVertCount;
+    GLuint roadVAO = createRingVAO(TRACK_RADIUS - ROAD_WIDTH * 0.5f,
+                                   TRACK_RADIUS + ROAD_WIDTH * 0.5f,
+                                   TRACK_SEGMENTS, roadTilting,
+                                   glm::vec3(0.5f,0.5f,0.5f), roadVertCount);
+    GLuint curbInnerVAO = createRingVAO(TRACK_RADIUS - ROAD_WIDTH * 0.5f - CURB_WIDTH,
+                                        TRACK_RADIUS - ROAD_WIDTH * 0.5f,
+                                        TRACK_SEGMENTS, 50.0f,
+                                        glm::vec3(1.0f,1.0f,1.0f), curbInnerVertCount);
+    GLuint curbOuterVAO = createRingVAO(TRACK_RADIUS + ROAD_WIDTH * 0.5f,
+                                        TRACK_RADIUS + ROAD_WIDTH * 0.5f + CURB_WIDTH,
+                                        TRACK_SEGMENTS, 50.0f,
+                                        glm::vec3(1.0f,1.0f,1.0f), curbOuterVertCount);
 
     GLuint carBodyVAO, carBodyVBO, carBodyEBO;
     createCubeVAO(carBodyVAO, carBodyVBO, carBodyEBO);
@@ -663,18 +731,6 @@ int main(int argc, char*argv[])
     const float ROAD_Y      = 0.0f;     // asphalt
     const float GRASS_Y     = -0.01f;   // your grass floor
     const float SHADOW_BIAS = 0.002f;    // lift to avoid z-fighting
-
-
-    std::vector<glm::vec3> lampPositions;
-    for (int i = 0; i < 16; ++i) {
-        glm::vec3 polePosition;
-        if (i < 8) {
-            polePosition = glm::vec3(-8.0f, 5.0f, -7.0f + i * 6.0f);
-        } else {
-            polePosition = glm::vec3(8.0f, 5.0f, -7.0f + (i - 8) * 6.0f);
-        }
-        lampPositions.push_back(polePosition);
-    }
 
     // Camera variables
     glm::vec3 cameraPos   = glm::vec3(0.0f, 1.5f,  5.0f);
@@ -985,7 +1041,6 @@ int main(int argc, char*argv[])
         glEnable(GL_CULL_FACE);
 
         // --- END CLOUDS ---
-
         glUseProgram(lightShaderProgram);
         glUniformMatrix4fv(glGetUniformLocation(lightShaderProgram, "camMatrix"), 1, GL_FALSE, glm::value_ptr(camMatrix));
        
@@ -993,12 +1048,13 @@ int main(int argc, char*argv[])
         glm::mat4 sunModel = glm::translate(glm::mat4(1.0f), sunPos) *
                              glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
         glUniformMatrix4fv(glGetUniformLocation(lightShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(sunModel));
-         glUniform4f(glGetUniformLocation(lightShaderProgram, "lightColor"), 1.0f, 0.9f, 0.3f, 1.0f);
+        glUniform4f(glGetUniformLocation(lightShaderProgram, "lightColor"), 1.0f, 0.9f, 0.3f, 1.0f);
         glBindVertexArray(sunData.VAO);
         glDrawElements(GL_TRIANGLES, sunData.indexCount, GL_UNSIGNED_INT, 0);
 
         glUseProgram(texturedShaderProgram);
         glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
+
         // Activate and bind texture unit 0 with your grass texture
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, grassTextureID);
@@ -1030,177 +1086,85 @@ int main(int argc, char*argv[])
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, mountainTextureID);
         glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
-        for (int i = 0; i < 24; ++i) {
-            glm::vec3 hillPosition;
-            float hillScale = 0.5f;
-            if (i == 0) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, -7.0f);
-                hillScale = 0.5f;
-            } else if (i == 1) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, -3.0f);
-                hillScale = 0.5f;
-            } else if (i == 2) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 1.0f);
-                hillScale = 0.5f;
-            } else if (i == 3) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 10.0f);
-                hillScale = 0.5f;
-            } else if (i == 4) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 14.0f);
-                hillScale = 0.5f;
-            } else if (i == 5) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 18.0f);
-                hillScale = 0.5f;
-            } else if (i == 6) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 22.0f);
-                hillScale = 0.5f;
-            } else if (i == 7) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 26.0f);
-                hillScale = 0.5f;
-            } else if (i == 8) {
-                hillPosition = glm::vec3(15.0f, 0.0f, -7.0f);
-                hillScale = 0.5f;
-            } else if (i == 9) {
-                hillPosition = glm::vec3(15.0f, 0.0f, -3.0f);
-                hillScale = 0.5f;
-            } else if (i == 10) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 1.0f);
-                hillScale = 0.5f;
-            } else if (i == 11) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 10.0f);
-                hillScale = 0.5f;
-            } else if (i == 12) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 14.0f);
-                hillScale = 0.5f;
-            } else if (i == 13) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 18.0f);
-                hillScale = 0.5f;
-            } else if (i == 14) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 22.0f);
-                hillScale = 0.5f;
-            } else if (i == 15) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 26.0f);
-                hillScale = 0.5f;
-            } else if (i == 16) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 30.0f);
-                hillScale = 0.5f;
-            } else if (i == 17) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 34.0f);
-                hillScale = 0.5f;
-            } else if (i == 18) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 38.0f);
-                hillScale = 0.5f;
-            } else if (i == 19) {
-                hillPosition = glm::vec3(-15.0f, 0.0f, 42.0f);
-                hillScale = 0.5f;
-            } else if (i == 20) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 30.0f);
-                hillScale = 0.5f;
-            } else if (i == 21) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 34.0f);
-                hillScale = 0.5f;
-            } else if (i == 22) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 38.0f);
-                hillScale = 0.5f;
-            } else if (i == 23) {
-                hillPosition = glm::vec3(15.0f, 0.0f, 42.0f);
-                hillScale = 0.5f;
-            }
+        for (const auto &hillPos : mountainPositions) {
+            glm::mat4 hillModel = glm::translate(glm::mat4(1.0f), hillPos) *
+                                  glm::scale(glm::mat4(1.0f), glm::vec3(mountainScale));
 
-
-            glm::mat4 hillModel = glm::translate(glm::mat4(1.0f), hillPosition) *
-                                  glm::scale(glm::mat4(1.0f), glm::vec3(hillScale));
-
-             glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(hillModel));
-            glBindVertexArray(hillData.VAO); 
+            glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(hillModel));
+            glBindVertexArray(hillData.VAO);
             glDrawElements(GL_TRIANGLES, hillData.indexCount, GL_UNSIGNED_INT, 0);
         }
 
-        // // Draw the road
-        
-        // Activate and bind your road texture
+        // Draw circular road with curbs
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, asphaltTextureID);
-        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
-        // Also mark road as ground = 1
         glStencilMask(0xFF);
         glStencilFunc(GL_ALWAYS, 1, 0xFF);
         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
 
-
-        // Compute your road model matrix
-        glm::mat4 roadModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -50.0f)) *
-                            glm::scale(glm::mat4(1.0f), glm::vec3(3.0f, 0.01f, 100.0f));
-
-        // Set your uniform
-        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(roadModel));
-
-        // Bind the VAO for the road and draw it
+        glm::mat4 identity = glm::mat4(1.0f);
+        glBindTexture(GL_TEXTURE_2D, asphaltTextureID);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
+        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(identity));
         glBindVertexArray(roadVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, roadVertCount);
 
+        glBindTexture(GL_TEXTURE_2D, curbTextureID);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
+        glm::mat4 curbModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.003f, 0.0f));
+        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(curbModel));
+        glBindVertexArray(curbInnerVAO);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, curbInnerVertCount);
+        glBindVertexArray(curbOuterVAO);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, curbOuterVertCount);
         glStencilMask(0x00);
 
-        // Bind the pole texture to texture unit 0
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, lightPoleTextureID);
-            glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
+        // Draw light poles around track
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, lightPoleTextureID);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
+        float poleScale = 0.3f;
+        for (const auto &lp : lampPositions) {
+            glm::vec3 polePos(lp.x, 3.0f, lp.z);
+            glm::mat4 poleModel = glm::translate(glm::mat4(1.0f), polePos) *
+                                  glm::scale(glm::mat4(1.0f), glm::vec3(poleScale));
+            glm::vec3 poleLightDir = headlightsOn ? glm::normalize(polePos - hlPos) : sunDir;
+            glm::mat4 poleShadow = makeShadowMatrix(poleLightDir, GRASS_Y, SHADOW_BIAS) * poleModel;
+            glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 1);
+            glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowPlaneY"), GRASS_Y);
+            glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowMinBias"), 0.0008f);
 
-            for (int i = 0; i < 16; ++i) {
-                glm::vec3 polePosition;
-                float poleScale = 0.3f;
+            glDisable(GL_CULL_FACE);
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(-2.0f, -2.0f);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthFunc(GL_LEQUAL);
+            glDepthMask(GL_FALSE);
+            glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(poleShadow));
+            glBindVertexArray(lightPoleData.VAO);
+            glDrawElements(GL_TRIANGLES, lightPoleData.indexCount, GL_UNSIGNED_INT, 0);
+            glDepthMask(GL_TRUE);
+            glDisable(GL_BLEND);
+            glDisable(GL_POLYGON_OFFSET_FILL);
+            glDepthFunc(GL_LESS);
+            glEnable(GL_CULL_FACE);
+            glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
 
-                if (i < 8) {
-                    polePosition = glm::vec3(-8.0f, 3.0f, -7.0f + i * 6.0f);
-                } else {
-                    polePosition = glm::vec3(8.0f, 3.0f, -7.0f + (i - 8) * 6.0f);
-                }
+            glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(poleModel));
+            glBindVertexArray(lightPoleData.VAO);
+            glDrawElements(GL_TRIANGLES, lightPoleData.indexCount, GL_UNSIGNED_INT, 0);
+        }
 
-                glm::mat4 poleModel = glm::translate(glm::mat4(1.0f), polePosition) *
-                                    glm::scale(glm::mat4(1.0f), glm::vec3(poleScale));
-
-                glm::vec3 poleLightDir = headlightsOn ? glm::normalize(polePosition - hlPos) : sunDir;
-                glm::mat4 poleShadow = makeShadowMatrix(poleLightDir, GRASS_Y, SHADOW_BIAS) * poleModel;
-                glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 1);
-
-                glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowPlaneY"), GRASS_Y);
-                glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowMinBias"), 0.0008f);
-
-                // Shadow state: polygon offset + alpha blend; keep depth writes enabled
-                glDisable(GL_CULL_FACE);
-                glEnable(GL_POLYGON_OFFSET_FILL);
-                glPolygonOffset(-2.0f, -2.0f);
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                glDepthFunc(GL_LEQUAL);
-                glDepthMask(GL_FALSE); 
-
-                glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(poleShadow));
-                glBindVertexArray(lightPoleData.VAO);
-                glDrawElements(GL_TRIANGLES, lightPoleData.indexCount, GL_UNSIGNED_INT, 0);
-
-                // Restore
-                glDepthMask(GL_TRUE);
-                glDisable(GL_BLEND);
-                glDisable(GL_POLYGON_OFFSET_FILL);
-                glDepthFunc(GL_LESS);
-                glEnable(GL_CULL_FACE);
-                glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
-
-
-
-                // Bind VAO and draw
-                glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(poleModel));
-                glBindVertexArray(lightPoleData.VAO);
-                glDrawElements(GL_TRIANGLES, lightPoleData.indexCount, GL_UNSIGNED_INT, 0);
-            }
-
-
-        // // Draw the grandstands after rendering the light poles, rotating textures for variety
+        // Grandstands around the outside of the track
         std::vector<glm::vec3> grandstandPositions;
-        for (float z = -45.0f; z <= 45.0f; z += 10.0f) {
-            grandstandPositions.push_back(glm::vec3(-6.0f, 0.0f, z)); // Left side
-            grandstandPositions.push_back(glm::vec3( 6.0f, 0.0f, z)); // Right side
+        const int GRANDSTAND_COUNT = 8;
+        for (int i = 0; i < GRANDSTAND_COUNT; ++i) {
+            float theta = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(GRANDSTAND_COUNT);
+            grandstandPositions.push_back(glm::vec3(
+                sin(theta) * (TRACK_RADIUS + 12.0f),
+                0.0f,
+                cos(theta) * (TRACK_RADIUS + 12.0f)
+            ));
         }
 
         std::vector<GLuint> grandstandTextures = {
@@ -1211,17 +1175,14 @@ int main(int argc, char*argv[])
         };
 
         for (size_t i = 0; i < grandstandPositions.size(); ++i) {
+            const glm::vec3 &pos = grandstandPositions[i];
             glBindTexture(GL_TEXTURE_2D, grandstandTextures[i % grandstandTextures.size()]);
             glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
-
-            // Corrected rotation: x > 0.0f gets 270, else 90
-            float angle = (grandstandPositions[i].x > 0.0f) ? 270.0f : 90.0f;
-            glm::mat4 grandstandModel = glm::translate(glm::mat4(1.0f), grandstandPositions[i]) *
-                                        glm::rotate(glm::mat4(1.0f), glm::radians(angle), glm::vec3(0.0f, 1.0f, 0.0f)) *
-                                        glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));  // Increased scale for visibility
-            
-             
-             glm::vec3 gsLightDir = headlightsOn ? glm::normalize(grandstandPositions[i] - hlPos) : sunDir;
+            float angleDeg = glm::degrees(atan2(pos.x, pos.z)) + 180.0f;
+            glm::mat4 grandstandModel = glm::translate(glm::mat4(1.0f), pos) *
+                                        glm::rotate(glm::mat4(1.0f), glm::radians(angleDeg), glm::vec3(0,1,0)) *
+                                        glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));
+            glm::vec3 gsLightDir = headlightsOn ? glm::normalize(pos - hlPos) : sunDir;
             glm::mat4 grandstandShadow = makeShadowMatrix(gsLightDir, GRASS_Y, SHADOW_BIAS) * grandstandModel;
             glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 1);
             glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowPlaneY"), GRASS_Y);
@@ -1234,11 +1195,9 @@ int main(int argc, char*argv[])
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glDepthFunc(GL_LEQUAL);
             glDepthMask(GL_FALSE);
-
             glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(grandstandShadow));
             glBindVertexArray(grandstandData.VAO);
             glDrawElements(GL_TRIANGLES, grandstandData.indexCount, GL_UNSIGNED_INT, 0);
-
             glDepthMask(GL_TRUE);
             glDisable(GL_BLEND);
             glDisable(GL_POLYGON_OFFSET_FILL);
@@ -1247,36 +1206,9 @@ int main(int argc, char*argv[])
             glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
 
             glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(grandstandModel));
-
             glBindVertexArray(grandstandData.VAO);
             glDrawElements(GL_TRIANGLES, grandstandData.indexCount, GL_UNSIGNED_INT, 0);
         }
-
-        // // Draw textured curbs
-        glBindVertexArray(curbVAO);
-        glBindTexture(GL_TEXTURE_2D, curbTextureID);   // red-white texture
-        glUniform1i(glGetUniformLocation(texturedShaderProgram,"textureSampler"),0);
-
-        const float curbW = 0.30f;
-        const float halfRoad = 1.5f;
-        const float halfCurb = curbW * 0.5f;
-        float offset = halfRoad + halfCurb;
-
-        // left side
-        glm::mat4 curbL = glm::translate(glm::mat4(1.0f),
-                        glm::vec3(-offset, 0.003f, 0.0f)) *
-                        glm::scale(glm::mat4(1.0f),
-                        glm::vec3(curbW, 0.01f, 100.0f));
-        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(curbL));
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-
-        // right side  (same texture, mirrored)
-        glm::mat4 curbR = glm::translate(glm::mat4(1.0f),
-                        glm::vec3( offset, 0.003f, 0.0f)) *
-                        glm::scale(glm::mat4(1.0f),
-                        glm::vec3(curbW, 0.01f, 100.0f));
-        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(curbR));
-        glDrawArrays(GL_TRIANGLES, 0, 6);
 
         // Car world (body heading)
         glm::mat4 carWorld =
@@ -1302,7 +1234,9 @@ int main(int argc, char*argv[])
 
             
         // --- car shadow ---
-        float carShadowPlane = (fabsf(carPos.x) <= halfRoad ? ROAD_Y : GRASS_Y);
+        float distFromCenter = glm::length(glm::vec2(carPos.x, carPos.z));
+        bool onRoad = fabsf(distFromCenter - TRACK_RADIUS) <= ROAD_WIDTH * 0.5f;
+        float carShadowPlane = onRoad ? ROAD_Y : GRASS_Y;
         glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 1);
 
         glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowPlaneY"), carShadowPlane);
@@ -1509,7 +1443,8 @@ int main(int argc, char*argv[])
 
     glDeleteVertexArrays(1, &floorVAO);
     glDeleteVertexArrays(1, &roadVAO);
-    glDeleteVertexArrays(1, &curbVAO);
+    glDeleteVertexArrays(1, &curbInnerVAO);
+    glDeleteVertexArrays(1, &curbOuterVAO);
     glDeleteVertexArrays(1, &carBodyVAO);
     glDeleteVertexArrays(1, &cabinVAO);
     glDeleteVertexArrays(1, &wheelVAO);
