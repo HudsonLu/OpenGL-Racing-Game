@@ -521,6 +521,7 @@ int main(int argc, char*argv[])
     GLuint carTexture = loadTexture("Textures/car_wrap.jpg");
     GLuint tireTexture = loadTexture("Textures/tires.jpg");
     GLuint birdTexture = loadTexture("Textures/yellow.jpg");
+    GLuint sunTextureID = loadTexture("Textures/01.png");
     
     // Initialize GLEW
     glewExperimental = true; // Needed for core profile
@@ -677,6 +678,7 @@ int main(int argc, char*argv[])
     ModelData lightPoleData = loadModelWithAssimp("Models/Light Pole.obj");
     // Load the grandstand model using the Assimp loader
     ModelData grandstandData = loadModelWithAssimp("Models/generic medium.obj");
+    ModelData sunData = loadModelWithAssimp("Models/semisphere.obj");
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -827,6 +829,7 @@ int main(int argc, char*argv[])
         // Headlight world positions using carPos/carForward/carRight you already computed
         glm::vec3 hlPosL = carPos + carUp * HL_y + carForward * HL_z - carRight * HL_x;
         glm::vec3 hlPosR = carPos + carUp * HL_y + carForward * HL_z + carRight * HL_x;
+        glm::vec3 hlPos = (hlPosL + hlPosR) * 0.5f;
 
         // Beam direction in shader convention.
         // The fragment shader uses L = normalize(lightPos - fragPos) (vector from fragment to light).
@@ -843,7 +846,7 @@ int main(int argc, char*argv[])
         float innerCut = cos(glm::radians(innerDeg));
         float outerCut = cos(glm::radians(outerDeg));
 
-        
+
 
         // Tweak these for throw distance (smaller Kl/Kq => longer reach)
         float Kc = 1.0f, Kl = 0.08f, Kq = 0.02f; // start with a fairly long reach
@@ -884,6 +887,8 @@ int main(int argc, char*argv[])
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "camMatrix"), 1, GL_FALSE, glm::value_ptr(camMatrix));
 
 
+        // Decide which light direction casts the planar shadows
+        glm::vec3 shadowDir = headlightsOn ? hlDir : sunDir;
 
 
         // --- CLOUDS DRAWING (before other objects) ---
@@ -924,6 +929,16 @@ int main(int argc, char*argv[])
         // --- END CLOUDS ---
 
        glUseProgram(texturedShaderProgram);
+       glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, sunTextureID);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
+        glm::vec3 sunPos = -sunDir * 100.0f;
+        glm::mat4 sunModel = glm::translate(glm::mat4(1.0f), sunPos) *
+                             glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
+        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(sunModel));
+        glBindVertexArray(sunData.VAO);
+        glDrawElements(GL_TRIANGLES, sunData.indexCount, GL_UNSIGNED_INT, 0);
 
         // Activate and bind texture unit 0 with your grass texture
         glActiveTexture(GL_TEXTURE0);
@@ -1085,7 +1100,8 @@ int main(int argc, char*argv[])
                 glm::mat4 poleModel = glm::translate(glm::mat4(1.0f), polePosition) *
                                     glm::scale(glm::mat4(1.0f), glm::vec3(poleScale));
 
-                glm::mat4 poleShadow = makeShadowMatrix(sunDir, GRASS_Y, SHADOW_BIAS) * poleModel;
+                glm::vec3 poleLightDir = headlightsOn ? glm::normalize(polePosition - hlPos) : sunDir;
+                glm::mat4 poleShadow = makeShadowMatrix(poleLightDir, GRASS_Y, SHADOW_BIAS) * poleModel;
                 glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 1);
 
                 glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowPlaneY"), GRASS_Y);
@@ -1145,7 +1161,33 @@ int main(int argc, char*argv[])
                                         glm::rotate(glm::mat4(1.0f), glm::radians(angle), glm::vec3(0.0f, 1.0f, 0.0f)) *
                                         glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));  // Increased scale for visibility
             
-             glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(grandstandModel));
+             
+             glm::vec3 gsLightDir = headlightsOn ? glm::normalize(grandstandPositions[i] - hlPos) : sunDir;
+            glm::mat4 grandstandShadow = makeShadowMatrix(gsLightDir, GRASS_Y, SHADOW_BIAS) * grandstandModel;
+            glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 1);
+            glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowPlaneY"), GRASS_Y);
+            glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowMinBias"), 0.0008f);
+
+            glDisable(GL_CULL_FACE);
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(-2.0f, -2.0f);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthFunc(GL_LEQUAL);
+            glDepthMask(GL_FALSE);
+
+            glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(grandstandShadow));
+            glBindVertexArray(grandstandData.VAO);
+            glDrawElements(GL_TRIANGLES, grandstandData.indexCount, GL_UNSIGNED_INT, 0);
+
+            glDepthMask(GL_TRUE);
+            glDisable(GL_BLEND);
+            glDisable(GL_POLYGON_OFFSET_FILL);
+            glDepthFunc(GL_LESS);
+            glEnable(GL_CULL_FACE);
+            glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
+
+            glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(grandstandModel));
 
             glBindVertexArray(grandstandData.VAO);
             glDrawElements(GL_TRIANGLES, grandstandData.indexCount, GL_UNSIGNED_INT, 0);
@@ -1218,14 +1260,14 @@ int main(int argc, char*argv[])
 
         // Body
         {
-            glm::mat4 bodyShadow = makeShadowMatrix(sunDir, carShadowPlane, SHADOW_BIAS) * bodyModel;
+            glm::mat4 bodyShadow = makeShadowMatrix(shadowDir, carShadowPlane, SHADOW_BIAS) * bodyModel;
             glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(bodyShadow));
             glBindVertexArray(carBodyVAO);
             glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
         }
         // Cabin
         {
-            glm::mat4 cabinShadow = makeShadowMatrix(sunDir, carShadowPlane, SHADOW_BIAS) * cabinModel;
+            glm::mat4 cabinShadow = makeShadowMatrix(shadowDir, carShadowPlane, SHADOW_BIAS) * cabinModel;
             glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(cabinShadow));
             glBindVertexArray(cabinVAO);
             glDrawElements(GL_TRIANGLES, 30, GL_UNSIGNED_INT, 0);
@@ -1243,7 +1285,7 @@ int main(int argc, char*argv[])
                     M *= glm::rotate(glm::mat4(1.0f), glm::radians(wheelAngle), glm::vec3(0,0,1));
                     M *= glm::scale(glm::mat4(1.0f), glm::vec3(WHEEL_SCALE));
 
-                    glm::mat4 wheelShadow = makeShadowMatrix(sunDir, carShadowPlane, SHADOW_BIAS) * M;
+                    glm::mat4 wheelShadow = makeShadowMatrix(shadowDir, carShadowPlane, SHADOW_BIAS) * M;
                     glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(wheelShadow));
                     glDrawElements(GL_TRIANGLES, wheelIndexCount, GL_UNSIGNED_INT, 0);
                 }
