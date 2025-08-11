@@ -1,96 +1,114 @@
 #version 330 core
-
 out vec4 FragColor;
 
-in vec3 vertexColor;
-in vec2 vertexUV;
-in vec3 vertexNormal;
-in vec3 crntPos;
+in VS_OUT {
+    vec3 color;
+    vec2 uv;
+    vec3 worldPos;
+    vec3 worldNrm;
+} fs;
 
 uniform sampler2D textureSampler;
 
-// Existing point/ambient/spec uniforms you already use
-uniform vec3 camPos;
-
-
-// === Sun and lamp lighting ===
-#define MAX_LAMPS 16
-uniform int lampCount;
-uniform vec3 lampPos[MAX_LAMPS];
-uniform vec3 lampColor;
+// Lights already set from C++:
 uniform vec3 sunDir;
 uniform vec3 sunColor;
 
-struct SpotLight {
-    vec3 position;    // world
-    vec3 direction;   // world (normalized)
-    float innerCut;   // cos(innerAngle)
-    float outerCut;   // cos(outerAngle)
+const int MAX_LAMPS = 32;
+uniform int  lampCount;
+uniform vec3 lampPos[MAX_LAMPS];
+uniform vec3 lampColor;
+uniform vec3 camPos;
+
+// Headlight spotlights (you set uHL[0], uHL[1] in C++)
+struct Headlight {
+    vec3  position;
+    vec3  direction;
+    float innerCut;
+    float outerCut;
     float constant;
     float linear;
     float quadratic;
-    vec3 color;
+    vec3  color;
 };
+uniform Headlight uHL[2];
+uniform bool uUseHeadlights;
 
-uniform bool  uUseHeadlights;
-uniform SpotLight uHL[2];
-// ================================
+// Shadow controls
+uniform int   uUseShadow;      // 0 = normal, 1 = shadow pass
+uniform vec4  uShadowColor;    // RGBA
 
-vec3 spotContrib(SpotLight L, vec3 N, vec3 P, vec3 V, vec3 albedo)
-{
-    vec3 Ldir = normalize(L.position - P);
-    float theta   = dot(Ldir, normalize(-L.direction)); // alignment with beam axis
-    float epsilon = max(L.innerCut - L.outerCut, 1e-4);
-    float spot    = clamp((theta - L.outerCut) / epsilon, 0.0, 1.0);
+float saturate(float x){ return clamp(x, 0.0, 1.0); }
 
-    float dist  = length(L.position - P);
-    float atten = 1.0 / (L.constant + L.linear * dist + L.quadratic * dist * dist);
+vec3 lambertDir(vec3 N, vec3 L, vec3 C) {
+    return C * max(dot(N, normalize(-L)), 0.0);
+}
 
-    float NdotL = max(dot(N, Ldir), 0.0);
-    vec3 diffuse = albedo * NdotL;
+vec3 lambertPoint(vec3 N, vec3 P, vec3 lightPos, vec3 C) {
+    vec3 L = lightPos - P;
+    float d = length(L);
+    L /= max(d, 1e-4);
+    float att = 1.0 / (1.0 + 0.08*d + 0.02*d*d); // matches your Kl/Kq
+    return C * max(dot(N, L), 0.0) * att;
+}
 
-    // simple Blinn-Phong-ish spec
-    vec3 H = normalize(Ldir + V);
-    float spec = pow(max(dot(N, H), 0.0), 32.0);
+vec3 blinnSpec(vec3 N, vec3 V, vec3 L, float shininess, float strength) {
+    vec3 H = normalize(V + L);
+    float s = pow(max(dot(N, H), 0.0), shininess);
+    return vec3(strength * s);
+}
 
-    return (diffuse + 0.2*spec) * L.color * atten * spot;
+vec3 spotlight(Headlight h, vec3 N, vec3 P, vec3 V) {
+    vec3  L  = normalize(h.position - P);
+    float d  = length(h.position - P);
+
+    float cosA = dot(L, normalize(h.direction)); // how aligned with beam
+    float sm  = smoothstep(h.outerCut, h.innerCut, cosA);  // soft edge
+
+    float att = 1.0 / (h.constant + h.linear*d + h.quadratic*d*d);
+
+    vec3 diff = h.color * max(dot(N, L), 0.0);
+    vec3 spec = blinnSpec(N, V, L, 64.0, 0.6) * h.color;
+
+    return (diff + spec) * att * sm;
 }
 
 void main()
 {
-    // Base material
-    vec3 albedo = texture(textureSampler, vertexUV).rgb;
-    vec3 N = normalize(vertexNormal);
-    vec3 V = normalize(camPos - crntPos);
-
-    // Directional sunlight with simple shadowing
-    vec3 Lsun = normalize(-sunDir);
-    float diffSun = max(dot(N, Lsun), 0.0);
-    vec3 Rsun = reflect(-Lsun, N);
-    float specSun = pow(max(dot(V, Rsun), 0.0), 16.0);
-    float shadow = diffSun > 0.0 ? 1.0 : 0.05;
-    vec3 lighting = (0.05 * sunColor) + shadow * sunColor * (diffSun + 0.5 * specSun);
-
-    // Lamps as point lights
-    for (int i = 0; i < lampCount; ++i) {
-        vec3 Ldir = normalize(lampPos[i] - crntPos);
-        float dist = length(lampPos[i] - crntPos);
-        float atten = 1.0 / (1.0 + 0.09 * dist + 0.032 * dist * dist);
-        float diff = max(dot(N, Ldir), 0.0);
-        vec3 Rlamp = reflect(-Ldir, N);
-        float spec = pow(max(dot(V, Rlamp), 0.0), 32.0);
-        lighting += lampColor * atten * (diff + 0.5 * spec);
+    // Shadow pass: output a tinted translucent black and bail
+    if (uUseShadow == 1) {
+        FragColor = uShadowColor;
+        return;
     }
 
-    vec3 color = albedo * lighting;
+    vec3  base   = texture(textureSampler, fs.uv).rgb * fs.color;
+    vec3  N      = normalize(fs.worldNrm);
+    vec3  V      = normalize(camPos - fs.worldPos);
 
+    // Directional sun
+    vec3 sunL   = normalize(-sunDir);
+    vec3 sunDiff= sunColor * max(dot(N, sunL), 0.0);
+    vec3 sunSpec= blinnSpec(N, V, sunL, 64.0, 0.25) * sunColor;
 
-    // ==== NEW: add two headlight spot contributions ====
+    // Lamps
+    vec3 pointSum = vec3(0.0);
+    for (int i = 0; i < lampCount && i < MAX_LAMPS; ++i) {
+        vec3 L  = normalize(lampPos[i] - fs.worldPos);
+        pointSum += lambertPoint(N, fs.worldPos, lampPos[i], lampColor);
+        pointSum += blinnSpec(N, V, L, 48.0, 0.15) * lampColor;
+    }
+
+    // Headlights (optional)
+    vec3 headSum = vec3(0.0);
     if (uUseHeadlights) {
-        color += spotContrib(uHL[0], N, crntPos, V, albedo);
-        color += spotContrib(uHL[1], N, crntPos, V, albedo);
+        headSum += spotlight(uHL[0], N, fs.worldPos, V);
+        headSum += spotlight(uHL[1], N, fs.worldPos, V);
     }
-    // ===================================================
 
-    FragColor = vec4(color, 1.0);
+    vec3 lit = base * (sunDiff + pointSum) + sunSpec + headSum;
+
+    // Very light ambient so unlit texels aren't pitch black
+    vec3 ambient = base * 0.12;
+
+    FragColor = vec4(ambient + lit, 1.0);
 }

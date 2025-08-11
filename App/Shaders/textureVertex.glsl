@@ -1,25 +1,42 @@
 #version 330 core
-                layout (location = 0) in vec3 aPos;
-                layout (location = 1) in vec3 aColor;
-                layout (location = 2) in vec2 aUV;
-                layout (location = 3) in vec3 aNormal;    
 
-                out vec3 vertexColor;
-                out vec2 vertexUV;
-                out vec3 vertexNormal;
-                out vec3 crntPos;
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aColor;
+layout(location = 2) in vec2 aUV;
+layout(location = 3) in vec3 aNormal;
 
-                uniform mat4 camMatrix;
-                uniform mat4 model;
+uniform mat4 camMatrix;
+uniform mat4 model;
 
-                void main()
-                {
-                    
-                    vec4 worldPos = model * vec4(aPos, 1.0f);
-                    crntPos = worldPos.xyz;
-                    gl_Position = camMatrix * worldPos;
+// Shadow controls
+uniform int   uUseShadow;        // 0 = normal draw, 1 = shadow pass
+uniform float uShadowPlaneY;     // the ground plane Y you’re projecting onto
+uniform float uShadowMinBias;    // tiny lift above the plane to avoid z-fighting
 
-                    vertexColor = aColor;
-                    vertexUV = aUV;
-                    vertexNormal = mat3(transpose(inverse(model))) * aNormal;
-                }
+out VS_OUT {
+    vec3 color;
+    vec2 uv;
+    vec3 worldPos;
+    vec3 worldNrm;
+} vs;
+
+void main()
+{
+    // World space
+    vec4 wp = model * vec4(aPos, 1.0);
+    vec3 wn = mat3(transpose(inverse(model))) * aNormal;
+
+    // During the shadow pass, clamp Y to never go below the plane
+    // (the matrix you use on CPU already projects to the plane;
+    // this is a last safety net that *forces* Y >= plane+bias)
+    if (uUseShadow == 1) {
+        wp.y = max(wp.y, uShadowPlaneY + uShadowMinBias);
+    }
+
+    vs.color    = aColor;
+    vs.uv       = aUV;
+    vs.worldPos = wp.xyz;
+    vs.worldNrm = normalize(wn);
+
+    gl_Position = camMatrix * wp;
+}

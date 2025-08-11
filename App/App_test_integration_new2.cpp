@@ -354,6 +354,26 @@ void createWheelVAO(GLuint &VAO, GLuint &VBO, GLuint &EBO, int segments = 32) {
     glBindVertexArray(0);
 }
 
+// Build a planar shadow matrix that projects onto y = planeY, then lifts by biasY.
+static glm::mat4 makeShadowMatrix(const glm::vec3& lightDir, float planeY, float biasY)
+{
+    // Clamp L.y away from 0 to avoid extreme shearing
+    glm::vec3 L = glm::normalize(lightDir);
+    float ly = (L.y <= -0.05f) ? L.y : -0.05f;  // force “light from above”
+    glm::vec3 Ls(L.x, ly, L.z);
+
+    glm::mat4 P(1.0f);
+    P[1][1] = 0.0f;
+    P[0][1] = -Ls.x / Ls.y;
+    P[2][1] = -Ls.z / Ls.y;
+
+    glm::mat4 toZero = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -planeY, 0.0f));
+    glm::mat4 back   = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f,  planeY + biasY, 0.0f));
+    return back * P * toZero;
+}
+
+
+
 // Structure to return both VAO and index count
 struct ModelData {
     GLuint VAO;
@@ -462,6 +482,7 @@ int main(int argc, char*argv[])
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_RESIZABLE, GL_TRUE); // Allow window resize
+    glfwWindowHint(GLFW_STENCIL_BITS, 8);
 
     // Create Window and rendering context using GLFW, resolution is 800x600
     GLFWwindow* window = glfwCreateWindow(1280, 720, "Project", NULL, NULL);
@@ -570,6 +591,11 @@ int main(int argc, char*argv[])
     // Light variables
     glm::vec3 sunDir   = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
     glm::vec3 sunColor = glm::vec3(0.6f, 0.6f, 0.5f);
+    // Shadow plane heights and bias
+    const float ROAD_Y      = 0.0f;     // asphalt
+    const float GRASS_Y     = -0.01f;   // your grass floor
+    const float SHADOW_BIAS = 0.002f;    // lift to avoid z-fighting
+
 
     std::vector<glm::vec3> lampPositions;
     for (int i = 0; i < 16; ++i) {
@@ -618,6 +644,9 @@ int main(int argc, char*argv[])
     glUniform3f(glGetUniformLocation(texturedShaderProgram, "lampColor"), 1.0f, 0.95f, 0.8f);
     glUniform3f(glGetUniformLocation(texturedShaderProgram, "camPos"), cameraPos.x, cameraPos.y, cameraPos.z);
 
+    glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
+    glUniform4f(glGetUniformLocation(texturedShaderProgram, "uShadowColor"), 0.0f, 0.0f, 0.0f, 0.5f);
+
     // Texture
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, grassTextureID);
@@ -630,6 +659,7 @@ int main(int argc, char*argv[])
 
     glEnable(GL_DEPTH_TEST); // Enable depth testing for 3D rendering
     glEnable(GL_CULL_FACE);
+    glEnable(GL_STENCIL_TEST);
 
     // load models
     ModelData cybertruckData = loadModelWithAssimp("Models/SUV.obj");
@@ -646,8 +676,7 @@ int main(int argc, char*argv[])
         float deltaTime = glfwGetTime() - lastFrameTime;
         lastFrameTime = glfwGetTime();
 
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear the screen
-
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         
         // Car commands
         // ----- Car input: throttle (I/K) -----
@@ -836,6 +865,8 @@ int main(int argc, char*argv[])
 
 
         // --- CLOUDS DRAWING (before other objects) ---
+        glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
         glUseProgram(cloudShaderProgram);
         GLuint textureSamplerLocation = glGetUniformLocation(cloudShaderProgram, "textureSampler");
         glEnable(GL_BLEND);
@@ -845,11 +876,10 @@ int main(int argc, char*argv[])
 
         for (auto& cloud : clouds) {
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, cloud.textureID);
-        glUniform1i(textureSamplerLocation, 0);
+            glBindTexture(GL_TEXTURE_2D, cloud.textureID);
+            glUniform1i(textureSamplerLocation, 0);
 
-        // Compute model matrix with billboarding, translation, scale, etc.
-        // Compute model matrix with billboarding, translation, scale, etc.
+            // Compute model matrix with billboarding, translation, scale, etc.
             glm::vec3 cloudToCamera = glm::normalize(cameraPos - cloud.position);
             glm::mat4 billboardRotation = glm::inverse(glm::lookAt(glm::vec3(0), cloudToCamera, glm::vec3(0, 1, 0)));
             billboardRotation[3] = glm::vec4(0, 0, 0, 1);
@@ -857,12 +887,14 @@ int main(int argc, char*argv[])
                               billboardRotation *
                               glm::scale(glm::mat4(1.0f), glm::vec3(cloud.scale));
 
-        glUniformMatrix4fv(glGetUniformLocation(cloudShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+            glUniformMatrix4fv(glGetUniformLocation(cloudShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
 
             glBindVertexArray(cloudVAO);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         }
 
+         glDepthMask(GL_TRUE);
+        glEnable(GL_DEPTH_TEST);
         glDisable(GL_BLEND);
 
         // --- END CLOUDS ---
@@ -873,10 +905,17 @@ int main(int argc, char*argv[])
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, grassTextureID);
         glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
+        // Mark ground in stencil = 1 (write while drawing floor)
+        glStencilMask(0xFF);
+        glStencilFunc(GL_ALWAYS, 1, 0xFF);
+        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+
 
         // Compute floor model matrix
         glm::mat4 floorModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.01f, 0.0f))
-                        * glm::scale(glm::mat4(1.0f), glm::vec3(10.0f, 0.02f, 10.0f));
+                     * glm::scale(glm::mat4(1.0f),  glm::vec3(40.0f, 0.02f, 140.0f));
+
+        
 
 
         // Set uniforms
@@ -886,11 +925,13 @@ int main(int argc, char*argv[])
         // Bind VAO for the floor and draw
         glBindVertexArray(floorVAO);
         glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        glStencilMask(0x00);
         
         // Draw the hills with rock texture
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, mountainTextureID);
-        glUniform1i(textureSamplerLocation, 0);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
         for (int i = 0; i < 24; ++i) {
             glm::vec3 hillPosition;
             float hillScale = 0.5f;
@@ -983,6 +1024,11 @@ int main(int argc, char*argv[])
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, asphaltTextureID);
         glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
+        // Also mark road as ground = 1
+        glStencilMask(0xFF);
+        glStencilFunc(GL_ALWAYS, 1, 0xFF);
+        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+
 
         // Compute your road model matrix
         glm::mat4 roadModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -50.0f)) *
@@ -994,6 +1040,8 @@ int main(int argc, char*argv[])
         // Bind the VAO for the road and draw it
         glBindVertexArray(roadVAO);
         glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        glStencilMask(0x00);
 
         // Bind the pole texture to texture unit 0
             glActiveTexture(GL_TEXTURE0);
@@ -1013,9 +1061,37 @@ int main(int argc, char*argv[])
                 glm::mat4 poleModel = glm::translate(glm::mat4(1.0f), polePosition) *
                                     glm::scale(glm::mat4(1.0f), glm::vec3(poleScale));
 
-                glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(poleModel));
+                glm::mat4 poleShadow = makeShadowMatrix(sunDir, GRASS_Y, SHADOW_BIAS) * poleModel;
+                glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 1);
+
+                glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowPlaneY"), GRASS_Y);
+                glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowMinBias"), 0.0008f);
+
+                // Shadow state: polygon offset + alpha blend; keep depth writes enabled
+                glDisable(GL_CULL_FACE);
+                glEnable(GL_POLYGON_OFFSET_FILL);
+                glPolygonOffset(-2.0f, -2.0f);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glDepthFunc(GL_LEQUAL);
+                glDepthMask(GL_FALSE); 
+
+                glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(poleShadow));
+                glBindVertexArray(lightPoleData.VAO);
+                glDrawElements(GL_TRIANGLES, lightPoleData.indexCount, GL_UNSIGNED_INT, 0);
+
+                // Restore
+                glDepthMask(GL_TRUE);
+                glDisable(GL_BLEND);
+                glDisable(GL_POLYGON_OFFSET_FILL);
+                glDepthFunc(GL_LESS);
+                glEnable(GL_CULL_FACE);
+                glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
+
+
 
                 // Bind VAO and draw
+                glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(poleModel));
                 glBindVertexArray(lightPoleData.VAO);
                 glDrawElements(GL_TRIANGLES, lightPoleData.indexCount, GL_UNSIGNED_INT, 0);
             }
@@ -1037,7 +1113,7 @@ int main(int argc, char*argv[])
 
         for (size_t i = 0; i < grandstandPositions.size(); ++i) {
             glBindTexture(GL_TEXTURE_2D, grandstandTextures[i % grandstandTextures.size()]);
-            glUniform1i(textureSamplerLocation, 0);
+            glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
 
             // Corrected rotation: x > 0.0f gets 270, else 90
             float angle = (grandstandPositions[i].x > 0.0f) ? 270.0f : 90.0f;
@@ -1087,23 +1163,95 @@ int main(int argc, char*argv[])
             * glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.25f, 0))
             // * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0,1,0))  // keep if your mesh needs it
             * glm::scale(glm::mat4(1.0f), glm::vec3(1.35f, 0.38f, 2.7f));
-        glBindTexture(GL_TEXTURE_2D, carTexture);
-        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(bodyModel));
-        glBindVertexArray(carBodyVAO);
-        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+        
 
         // Cabin (same parent)
         glm::mat4 cabinModel = carWorld
             * glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.55f, 0))
             //* glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0,1,0))  // keep if needed
             * glm::scale(glm::mat4(1.0f), glm::vec3(0.75f, 0.4f, 2.0f));
+
+        // Wheel hub offsets from the car's center (left/right, back/front)
+        const float wheelX = 0.75f;
+        const float wheelZ = 1.10f;
+
+            
+        // --- car shadow ---
+        float carShadowPlane = (fabsf(carPos.x) <= halfRoad ? ROAD_Y : GRASS_Y);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 1);
+
+        glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowPlaneY"), carShadowPlane);
+        glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowMinBias"), 0.0008f);
+
+        glDisable(GL_CULL_FACE);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(-2.0f, -2.0f);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthFunc(GL_LEQUAL);
+        glDepthMask(GL_FALSE); // Disable depth writes for shadows
+
+
+        // Body
+        {
+            glm::mat4 bodyShadow = makeShadowMatrix(sunDir, carShadowPlane, SHADOW_BIAS) * bodyModel;
+            glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(bodyShadow));
+            glBindVertexArray(carBodyVAO);
+            glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+        }
+        // Cabin
+        {
+            glm::mat4 cabinShadow = makeShadowMatrix(sunDir, carShadowPlane, SHADOW_BIAS) * cabinModel;
+            glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(cabinShadow));
+            glBindVertexArray(cabinVAO);
+            glDrawElements(GL_TRIANGLES, 30, GL_UNSIGNED_INT, 0);
+        }
+        // Wheels
+        {
+            glBindVertexArray(wheelVAO);
+            for (int i = -1; i <= 1; i += 2) {
+                for (int j = -1; j <= 1; j += 2) {
+                    bool isFront = (j == 1);
+                    glm::vec3 hubOffset(i * wheelX, WHEEL_SCALE * 0.5f, j * wheelZ);
+                    glm::mat4 M = carWorld * glm::translate(glm::mat4(1.0f), hubOffset);
+                    if (isFront) M *= glm::rotate(glm::mat4(1.0f), glm::radians(steerAngle), glm::vec3(0,1,0));
+                    M *= glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0,1,0));
+                    M *= glm::rotate(glm::mat4(1.0f), glm::radians(wheelAngle), glm::vec3(0,0,1));
+                    M *= glm::scale(glm::mat4(1.0f), glm::vec3(WHEEL_SCALE));
+
+                    glm::mat4 wheelShadow = makeShadowMatrix(sunDir, carShadowPlane, SHADOW_BIAS) * M;
+                    glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(wheelShadow));
+                    glDrawElements(GL_TRIANGLES, wheelIndexCount, GL_UNSIGNED_INT, 0);
+                }
+            }
+        }
+
+        // Restore
+        // Restore
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glDepthFunc(GL_LESS);
+        glEnable(GL_CULL_FACE);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
+
+
+        // --- draw car ---
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, carTexture);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
+        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(bodyModel));
+        glBindVertexArray(carBodyVAO);
+        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(cabinModel));
         glBindVertexArray(cabinVAO);
         glDrawElements(GL_TRIANGLES, 30, GL_UNSIGNED_INT, 0);
 
         // Wheels (front steer Y; align Z->X; spin Z; scale)
+        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, tireTexture);
-        const float wheelX = 0.75f, wheelZ = 1.10f;
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
 
         for (int i = -1; i <= 1; i += 2) {       // left/right
             for (int j = -1; j <= 1; j += 2) {   // back/front
@@ -1179,7 +1327,9 @@ int main(int argc, char*argv[])
         // // Draw the Bird model
 
         float angle = glm::radians(glfwGetTime() * 60.0f); // Rotate the bird model
+        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, birdTexture);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
         glm::mat4 birdModelMatrix = glm::mat4(1.0f);
         birdModelMatrix = glm::translate(birdModelMatrix, glm::vec3(0.0f, 2.0f, 2.0f));
         birdModelMatrix = glm::rotate(birdModelMatrix, angle, glm::vec3(0.0f, 1.0f, 0.0f));
