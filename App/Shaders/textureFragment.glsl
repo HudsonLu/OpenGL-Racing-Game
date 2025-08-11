@@ -68,8 +68,8 @@ void main()
     float diffSun = max(dot(N, Lsun), 0.0);
     vec3 Rsun = reflect(-Lsun, N);
     float specSun = pow(max(dot(V, Rsun), 0.0), 16.0);
-    float shadow = diffSun > 0.0 ? 1.0 : 0.2;
-    vec3 lighting = (0.1 * sunColor) + shadow * sunColor * (diffSun + 0.5 * specSun);
+    float shadow = diffSun > 0.0 ? 1.0 : 0.05;
+    vec3 lighting = (0.05 * sunColor) + shadow * sunColor * (diffSun + 0.5 * specSun);
 
     // Lamps as point lights
     for (int i = 0; i < lampCount; ++i) {

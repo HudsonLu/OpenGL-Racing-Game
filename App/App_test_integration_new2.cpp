@@ -542,7 +542,8 @@ int main(int argc, char*argv[])
     glfwGetCursorPos(window, &lastMousePosX, &lastMousePosY);
 
     // Sky blue background
-    glClearColor(135.0f/255.0f, 206.0f/255.0f, 235.0f/255.0f, 1.0f);
+    // Slightly dimmer sky so clouds and lighting stand out
+    glClearColor(0.4f, 0.6f, 0.8f, 1.0f);
     
     // Compile and link shaders here ...
     std::string shaderPathPrefix = "Shaders/";
@@ -567,9 +568,8 @@ int main(int argc, char*argv[])
    
 
     // Light variables
-
-    glm::vec3 sunDir   = glm::normalize(glm::vec3(-0.2f, -1.0f, -0.3f));
-    glm::vec3 sunColor = glm::vec3(1.0f, 1.0f, 0.9f);
+    glm::vec3 sunDir   = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
+    glm::vec3 sunColor = glm::vec3(0.6f, 0.6f, 0.5f);
 
     std::vector<glm::vec3> lampPositions;
     for (int i = 0; i < 16; ++i) {
@@ -840,6 +840,8 @@ int main(int argc, char*argv[])
         GLuint textureSamplerLocation = glGetUniformLocation(cloudShaderProgram, "textureSampler");
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glUniformMatrix4fv(glGetUniformLocation(cloudShaderProgram, "camMatrix"), 1, GL_FALSE, glm::value_ptr(camMatrix));
+
 
         for (auto& cloud : clouds) {
         glActiveTexture(GL_TEXTURE0);
@@ -847,17 +849,18 @@ int main(int argc, char*argv[])
         glUniform1i(textureSamplerLocation, 0);
 
         // Compute model matrix with billboarding, translation, scale, etc.
-        glm::vec3 cloudToCamera = glm::normalize(cameraPos - cloud.position);
-        glm::mat4 billboardRotation = glm::inverse(glm::lookAt(glm::vec3(0), cloudToCamera, glm::vec3(0, 1, 0)));
-        billboardRotation[3] = glm::vec4(0, 0, 0, 1);
-        glm::mat4 model = glm::translate(glm::mat4(1.0f), cloud.position) *
-                        billboardRotation *
-                        glm::scale(glm::mat4(1.0f), glm::vec3(cloud.scale));
+        // Compute model matrix with billboarding, translation, scale, etc.
+            glm::vec3 cloudToCamera = glm::normalize(cameraPos - cloud.position);
+            glm::mat4 billboardRotation = glm::inverse(glm::lookAt(glm::vec3(0), cloudToCamera, glm::vec3(0, 1, 0)));
+            billboardRotation[3] = glm::vec4(0, 0, 0, 1);
+            glm::mat4 model = glm::translate(glm::mat4(1.0f), cloud.position) *
+                              billboardRotation *
+                              glm::scale(glm::mat4(1.0f), glm::vec3(cloud.scale));
 
-        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
-        
-        glBindVertexArray(cloudVAO);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glUniformMatrix4fv(glGetUniformLocation(cloudShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+
+            glBindVertexArray(cloudVAO);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         }
 
         glDisable(GL_BLEND);
