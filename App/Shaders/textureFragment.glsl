@@ -23,13 +23,14 @@ uniform vec3 camPos;
 // Headlight spotlights (you set uHL[0], uHL[1] in C++)
 struct Headlight {
     vec3  position;
-    vec3  direction;
-    float innerCut;
-    float outerCut;
+    vec3  direction;   // points *forward* from the lamp
+    float innerCut;    // cos(inner angle)   in [0..1], innerCut > outerCut
+    float outerCut;    // cos(outer angle)
     float constant;
     float linear;
     float quadratic;
     vec3  color;
+    float range;       // max reach in scene units
 };
 uniform Headlight uHL[2];
 uniform bool uUseHeadlights;
@@ -45,7 +46,7 @@ vec3 lambertDir(vec3 N, vec3 L, vec3 C) {
 }
 
 vec3 lambertPoint(vec3 N, vec3 P, vec3 lightPos, vec3 C) {
-    vec3 L = lightPos - P;
+    vec3 L = lightPos - P;                 // point -> light
     float d = length(L);
     L /= max(d, 1e-4);
     float att = 1.0 / (1.0 + 0.08*d + 0.02*d*d); // matches your Kl/Kq
@@ -59,16 +60,24 @@ vec3 blinnSpec(vec3 N, vec3 V, vec3 L, float shininess, float strength) {
 }
 
 vec3 spotlight(Headlight h, vec3 N, vec3 P, vec3 V) {
-    vec3  L  = normalize(h.position - P);
+    // Ld: point -> light   (for diffuse/spec)
+    vec3  Ld = normalize(h.position - P);
     float d  = length(h.position - P);
 
-    float cosA = dot(L, normalize(h.direction)); // how aligned with beam
-    float sm  = smoothstep(h.outerCut, h.innerCut, cosA);  // soft edge
+    // For the cone, compare light -> point with the headlight's forward direction
+    vec3  toFrag = normalize(P - h.position);            // light -> point
+    float cosA   = dot(toFrag, normalize(h.direction));  // alignment with beam
+    float sm     = smoothstep(h.outerCut, h.innerCut, cosA);  // soft edge
 
+    // Distance attenuation (your constants) + explicit range falloff
     float att = 1.0 / (h.constant + h.linear*d + h.quadratic*d*d);
 
-    vec3 diff = h.color * max(dot(N, L), 0.0);
-    vec3 spec = blinnSpec(N, V, L, 64.0, 0.6) * h.color;
+    // Clamp reach so it dies smoothly between 0.7*range and range
+    float rangeFalloff = 1.0 - smoothstep(0.7*h.range, h.range, d); // FIX: h.range
+    att *= rangeFalloff;
+
+    vec3 diff = h.color * max(dot(N, Ld), 0.0);
+    vec3 spec = blinnSpec(N, V, Ld, 64.0, 0.6) * h.color;
 
     return (diff + spec) * att * sm;
 }

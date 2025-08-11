@@ -72,8 +72,8 @@ const float HL_x     = 0.55f;   // half-width offset (left/right)
 const float HL_w     = 0.08f;  // was 0.20f
 const float HL_h     = 0.05f;  // was 0.12f
 const float HL_depth = 0.01f;  // keep the same
-const float GLOW_SCALE = 1.8f;
-const float GLOW_PUSH  = 0.04f; // push a bit forward to avoid z-fighting
+const float GLOW_SCALE = 1.5f;
+const float GLOW_PUSH  = 0.02f; // push a bit forward to avoid z-fighting
 
 // Texture methods
 GLuint loadTexture(const char *filename)
@@ -828,14 +828,22 @@ int main(int argc, char*argv[])
         glm::vec3 hlPosL = carPos + carUp * HL_y + carForward * HL_z - carRight * HL_x;
         glm::vec3 hlPosR = carPos + carUp * HL_y + carForward * HL_z + carRight * HL_x;
 
-        // Beam direction = car forward
-        glm::vec3 hlDir = glm::normalize(carForward);
+        // Beam direction in shader convention.
+        // The fragment shader uses L = normalize(lightPos - fragPos) (vector from fragment to light).
+        // For a spotlight we want the angle between (frag - light) and the spot axis.
+        // Therefore send the NEGATED forward vector here so the cone points forward.
+        float HL_PITCH_DEG = 15.0f;                           // try 20–30 for closer hit
+        float pitch = glm::radians(HL_PITCH_DEG);
+        glm::vec3 hlDir = glm::normalize(  std::cos(pitch) * carForward
+                                        - std::sin(pitch) * carUp );
 
         // Spotlight angles and attenuation
-        float innerDeg = 10.0f;    // tighter inner cone
-        float outerDeg = 16.0f;    // softer penumbra
+        float innerDeg = 24.0f;    // tighter inner cone
+        float outerDeg = 38.0f;    // softer penumbra
         float innerCut = cos(glm::radians(innerDeg));
         float outerCut = cos(glm::radians(outerDeg));
+
+        
 
         // Tweak these for throw distance (smaller Kl/Kq => longer reach)
         float Kc = 1.0f, Kl = 0.08f, Kq = 0.02f; // start with a fairly long reach
@@ -857,6 +865,11 @@ int main(int argc, char*argv[])
         glUniform1f(LOC("uHL[0].linear"),    Kl);
         glUniform1f(LOC("uHL[0].quadratic"), Kq);
         glUniform3f(LOC("uHL[0].color"),     5.0f, 5.0f, 5.0f); // warmish white
+        // Shorter throw = smaller range
+        float HL_RANGE = 8.0f; // try 6–10; lower = closer beam
+        glUniform1f(LOC("uHL[0].range"), HL_RANGE);
+        glUniform1f(LOC("uHL[1].range"), HL_RANGE);
+
 
         // Right headlight
         glUniform3f(LOC("uHL[1].position"),  hlPosR.x, hlPosR.y, hlPosR.z);
