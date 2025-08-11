@@ -181,16 +181,16 @@ GLuint createTexturedVAO(float* vertices, size_t size) {
 
 void createCubeVAO(GLuint &VAO, GLuint &VBO, GLuint &EBO) {
     float vertices[] = {
-        // positions       normals     texcoords
-        -0.5f,-0.5f, 0.5f, 0,0,1, 0,0,
-         0.5f,-0.5f, 0.5f, 0,0,1, 1,0,
-         0.5f, 0.5f, 0.5f, 0,0,1, 1,1,
-        -0.5f, 0.5f, 0.5f, 0,0,1, 0,1,
+        // positions         // colors      // texcoords // normals
+        -0.5f,-0.5f, 0.5f,   1,1,1,        0,0,         0,0,1,
+         0.5f,-0.5f, 0.5f,   1,1,1,        1,0,         0,0,1,
+         0.5f, 0.5f, 0.5f,   1,1,1,        1,1,         0,0,1,
+        -0.5f, 0.5f, 0.5f,   1,1,1,        0,1,         0,0,1,
 
-        -0.5f,-0.5f,-0.5f, 0,0,-1, 0,0,
-         0.5f,-0.5f,-0.5f, 0,0,-1, 1,0,
-         0.5f, 0.5f,-0.5f, 0,0,-1, 1,1,
-        -0.5f, 0.5f,-0.5f, 0,0,-1, 0,1
+        -0.5f,-0.5f,-0.5f,  1,1,1,        0,0,         0,0,-1,
+         0.5f,-0.5f,-0.5f,  1,1,1,        1,0,         0,0,-1,
+         0.5f, 0.5f,-0.5f,  1,1,1,        1,1,         0,0,-1,
+        -0.5f, 0.5f,-0.5f,  1,1,1,        0,1,         0,0,-1
     };
     GLuint indices[] = {
         0,1,2, 2,3,0,
@@ -208,28 +208,30 @@ void createCubeVAO(GLuint &VAO, GLuint &VBO, GLuint &EBO) {
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,8*sizeof(float),(void*)0);
+    glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,11*sizeof(float),(void*)0);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,8*sizeof(float),(void*)(3*sizeof(float)));
+    glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,11*sizeof(float),(void*)(3*sizeof(float)));
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(2,2,GL_FLOAT,GL_FALSE,8*sizeof(float),(void*)(6*sizeof(float)));
+    glVertexAttribPointer(2,2,GL_FLOAT,GL_FALSE,11*sizeof(float),(void*)(6*sizeof(float)));
     glEnableVertexAttribArray(2);
+    glVertexAttribPointer(3,3,GL_FLOAT,GL_FALSE,11*sizeof(float),(void*)(8*sizeof(float)));
+    glEnableVertexAttribArray(3);
     glBindVertexArray(0);
 }
 
 // -------------------- Trapezoid VAO (Cabin) --------------------
 void createCabinVAO(GLuint &VAO, GLuint &VBO, GLuint &EBO) {
     float vertices[] = {
-        // positions         normals  tex
-        -0.5f,-0.5f, 0.5f,   0,0,1,   0,0,
-         0.5f,-0.5f, 0.5f,   0,0,1,   1,0,
-         0.3f, 0.5f, 0.3f,   0,0,1,   0.8,1,
-        -0.3f, 0.5f, 0.3f,   0,0,1,   0.2,1,
+         // positions           // colors      // tex      // normals
+        -0.5f,-0.5f, 0.5f,     1,1,1,        0,0,       0,0,1,
+         0.5f,-0.5f, 0.5f,     1,1,1,        1,0,       0,0,1,
+         0.3f, 0.5f, 0.3f,     1,1,1,        0.8,1,     0,0,1,
+        -0.3f, 0.5f, 0.3f,     1,1,1,        0.2,1,     0,0,1,
 
-        -0.5f,-0.5f,-0.5f,   0,0,-1,  0,0,
-         0.5f,-0.5f,-0.5f,   0,0,-1,  1,0,
-         0.3f, 0.5f,-0.3f,   0,0,-1,  0.8,1,
-        -0.3f, 0.5f,-0.3f,   0,0,-1,  0.2,1
+        -0.5f,-0.5f,-0.5f,    1,1,1,        0,0,       0,0,-1,
+         0.5f,-0.5f,-0.5f,    1,1,1,        1,0,       0,0,-1,
+         0.3f, 0.5f,-0.3f,    1,1,1,        0.8,1,     0,0,-1,
+        -0.3f, 0.5f,-0.3f,    1,1,1,        0.2,1,     0,0,-1
     };
     GLuint indices[] = {
         0,1,2, 2,3,0,
@@ -246,12 +248,14 @@ void createCabinVAO(GLuint &VAO, GLuint &VBO, GLuint &EBO) {
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,8*sizeof(float),(void*)0);
+    glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,11*sizeof(float),(void*)0);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,8*sizeof(float),(void*)(3*sizeof(float)));
+    glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,11*sizeof(float),(void*)(3*sizeof(float)));
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(2,2,GL_FLOAT,GL_FALSE,8*sizeof(float),(void*)(6*sizeof(float)));
+    glVertexAttribPointer(2,2,GL_FLOAT,GL_FALSE,11*sizeof(float),(void*)(6*sizeof(float)));
     glEnableVertexAttribArray(2);
+    glVertexAttribPointer(3,3,GL_FLOAT,GL_FALSE,11*sizeof(float),(void*)(8*sizeof(float)));
+    glEnableVertexAttribArray(3);
     glBindVertexArray(0);
 }
 
@@ -269,11 +273,13 @@ void createWheelVAO(GLuint &VAO, GLuint &VBO, GLuint &EBO, int segments = 32) {
         float x = radius * cos(theta);
         float y = radius * sin(theta);
         float u = (float)i / segments; // horizontal wrap 0..1
+        float nx = cos(theta);
+        float ny = sin(theta);
 
         // Front side (z = halfW)
-        verts.insert(verts.end(), { x, y,  halfW,  1,1,1,  u, 1 });
+        verts.insert(verts.end(), { x, y,  halfW,  1,1,1,  u, 1,  nx, ny, 0 });
         // Back side (z = -halfW)
-        verts.insert(verts.end(), { x, y, -halfW,  1,1,1,  u, 0 });
+        verts.insert(verts.end(), { x, y, -halfW,  1,1,1,  u, 0,  nx, ny, 0 });
     }
 
     // Create indices for cylinder wall (two triangles per quad)
@@ -289,27 +295,27 @@ void createWheelVAO(GLuint &VAO, GLuint &VBO, GLuint &EBO, int segments = 32) {
     }
 
     // ===== 2. Caps (front / back discs) with neutral UVs =====
-    int ringFrontStart = verts.size() / 8;
+    int ringFrontStart = verts.size() / 11;
     for (int i = 0; i < segments; ++i) {
         float theta = 2.0f * M_PI * i / segments;
         float x = radius * cos(theta);
         float y = radius * sin(theta);
-        verts.insert(verts.end(), { x, y,  halfW,  1,1,1,  0.5f, 0.5f });  // neutral UV
+        verts.insert(verts.end(), { x, y,  halfW,  1,1,1,  0.5f, 0.5f,  0,0,1 });  // neutral UV
     }
 
-    int ringBackStart = verts.size() / 8;
+    int ringBackStart = verts.size() / 11;
     for (int i = 0; i < segments; ++i) {
         float theta = 2.0f * M_PI * i / segments;
         float x = radius * cos(theta);
         float y = radius * sin(theta);
-        verts.insert(verts.end(), { x, y, -halfW,  1,1,1,  0.5f, 0.5f });  // neutral UV
+        verts.insert(verts.end(), { x, y, -halfW,  1,1,1,  0.5f, 0.5f,  0,0,-1 });  // neutral UV
     }
 
-    int centerFront = verts.size() / 8;
-    verts.insert(verts.end(), { 0, 0,  halfW,  1,1,1,  0.5f, 0.5f });
+    int centerFront = verts.size() / 11;
+    verts.insert(verts.end(), { 0, 0,  halfW,  1,1,1,  0.5f, 0.5f,  0,0,1 });
 
-    int centerBack  = verts.size() / 8;
-    verts.insert(verts.end(), { 0, 0, -halfW,  1,1,1,  0.5f, 0.5f });
+    int centerBack  = verts.size() / 11;
+    verts.insert(verts.end(), { 0, 0, -halfW,  1,1,1,  0.5f, 0.5f,  0,0,-1 });
 
     // front disc indices
     for (int i = 0; i < segments; ++i) {
@@ -342,14 +348,17 @@ void createWheelVAO(GLuint &VAO, GLuint &VBO, GLuint &EBO, int segments = 32) {
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, inds.size() * sizeof(unsigned int), inds.data(), GL_STATIC_DRAW);
 
     // Position
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
     // Color
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
     // UV
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(6 * sizeof(float)));
     glEnableVertexAttribArray(2);
+    // Normal
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(8 * sizeof(float)));
+    glEnableVertexAttribArray(3);
 
     glBindVertexArray(0);
 }
@@ -867,6 +876,7 @@ int main(int argc, char*argv[])
         // --- CLOUDS DRAWING (before other objects) ---
         glDisable(GL_DEPTH_TEST);
         glDepthMask(GL_FALSE);
+        glDisable(GL_CULL_FACE); // billboards should be visible from both sides
         glUseProgram(cloudShaderProgram);
         GLuint textureSamplerLocation = glGetUniformLocation(cloudShaderProgram, "textureSampler");
         glEnable(GL_BLEND);
@@ -896,6 +906,7 @@ int main(int argc, char*argv[])
          glDepthMask(GL_TRUE);
         glEnable(GL_DEPTH_TEST);
         glDisable(GL_BLEND);
+        glEnable(GL_CULL_FACE);
 
         // --- END CLOUDS ---
 

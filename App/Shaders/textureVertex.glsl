@@ -30,7 +30,7 @@ void main()
     // (the matrix you use on CPU already projects to the plane;
     // this is a last safety net that *forces* Y >= plane+bias)
     if (uUseShadow == 1) {
-        wp.y = max(wp.y, uShadowPlaneY + uShadowMinBias);
+        wp.y = uShadowPlaneY + uShadowMinBias;
     }
 
     vs.color    = aColor;
