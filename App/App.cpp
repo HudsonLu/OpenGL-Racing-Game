@@ -775,7 +775,7 @@ int main(int argc, char*argv[])
         
         // Car commands
         // ----- Car input: throttle (I/K) -----
-        const float speed = 5.0f;     // units/sec
+        const float speed = 8.0f;     // units/sec
         float v = 0.0f;               // signed forward speed (body frame)
         bool iHeld = glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS;
         bool kHeld = glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS;
@@ -863,7 +863,7 @@ int main(int argc, char*argv[])
         // Speed multiplier for shift
         // Only move free camera in non‑chase modes
         if (!cameraChase) {
-            float speedMultiplier = (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) ? 3.0f : 1.0f;
+            float speedMultiplier = (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) ? 5.0f : 3.0f;
             if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) cameraPos += cameraFront * deltaTime * 1.0f * speedMultiplier;
             if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) cameraPos -= cameraFront * deltaTime * 1.0f * speedMultiplier;
             if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) cameraPos -= glm::normalize(glm::cross(cameraFront, glm::vec3(0,1,0))) * deltaTime * 1.0f * speedMultiplier;
