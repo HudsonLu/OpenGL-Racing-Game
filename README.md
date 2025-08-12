@@ -8,13 +8,18 @@ A 3D race environment built using modern OpenGL (3.3 core profile) featuring:
 - Sky system with moving clouds
 - Animated birds with hierarchical rotation
 
+## Running the Game
+
+Start the application from the **MainMenu** to choose which track to race on.
+After launching `MainMenu`, select a track and the corresponding scene will load.
+
 ## Features
 
 - **Graphics APIs**: OpenGL 3.3 Core Profile with GLEW and GLFW
 - **Math**: GLM (camera, transformation matrices)
 - **Models**: Assimp to load `.obj` files
 - **Textures**: STB Image to load textures
-- **Input**: Keyboard (WASD + Shift for camera movement, IJKL for car control, 1/2 for view modes)
+- **Input**: Keyboard (WASD + Shift for camera movement, IJKL for car control, 1/2/3 for camera modes, H for Headlights)
 
 ## Controls
 
@@ -24,8 +29,10 @@ A 3D race environment built using modern OpenGL (3.3 core profile) featuring:
 | `Shift`     | Move camera faster               |
 | `I/K`       | Move car forward/backward        |
 | `J/L`       | Steer car left/right             |
+| `H`         | Car Headlights                   |
 | `1`         | First-person camera              |
 | `2`         | Third-person camera              |
+| `3`         | Chase camera                     |
 | `ESC`       | Quit program                     |
 
 ## Models and Textures
@@ -35,6 +42,7 @@ A 3D race environment built using modern OpenGL (3.3 core profile) featuring:
 - `part.obj` (hills)
 - `Light Pole.obj`
 - `generic medium.obj` (grandstand)
+- `tree1.obj` (trees)
 
 ### Textures (in `Textures/`)
 - `grass.jpg`
