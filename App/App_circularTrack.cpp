@@ -423,6 +423,7 @@ static glm::mat4 makeShadowMatrix(const glm::vec3& lightDir, float planeY, float
 struct ModelData {
     GLuint VAO;
     GLsizei indexCount;
+    unsigned int materialIndex;
 };
 
 ModelData loadModelWithAssimp(const std::string& path) {
@@ -516,6 +517,107 @@ ModelData loadModelWithAssimp(const std::string& path) {
 
     return { VAO, static_cast<GLsizei>(indices.size()) };
 }
+
+std::vector<ModelData> loadMultiMeshModels(const std::string& path) {
+    Assimp::Importer importer;
+    const aiScene* scene = importer.ReadFile(path,
+        aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_JoinIdenticalVertices);
+
+    if (!scene || !scene->HasMeshes()) {
+        throw std::runtime_error("Failed to load model: " + path);
+    }
+
+    std::vector<ModelData> modelMeshes;
+
+    for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+        const aiMesh* mesh = scene->mMeshes[m];
+
+        std::vector<float> vertices;
+        std::vector<unsigned int> indices;
+
+        for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
+            aiVector3D pos = mesh->mVertices[i];
+            aiVector3D normal = mesh->mNormals[i];
+
+            // Position
+            vertices.push_back(pos.x);
+            vertices.push_back(pos.y);
+            vertices.push_back(pos.z);
+
+            // Default color (white)
+            vertices.push_back(1.0f);
+            vertices.push_back(1.0f);
+            vertices.push_back(1.0f);
+
+            // Texture coordinates (UV)
+            if (mesh->HasTextureCoords(0)) {
+                aiVector3D uv = mesh->mTextureCoords[0][i];
+                vertices.push_back(uv.x);
+                vertices.push_back(uv.y);
+            } else {
+                vertices.push_back(0.0f);
+                vertices.push_back(0.0f);
+            }
+
+            // Normals
+            vertices.push_back(normal.x);
+            vertices.push_back(normal.y);
+            vertices.push_back(normal.z);
+        }
+
+        // Indices
+        for (unsigned int i = 0; i < mesh->mNumFaces; ++i) {
+            aiFace face = mesh->mFaces[i];
+            for (unsigned int j = 0; j < face.mNumIndices; ++j) {
+                indices.push_back(face.mIndices[j]);
+            }
+        }
+
+        // OpenGL buffers
+        GLuint VBO, VAO, EBO;
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glGenBuffers(1, &EBO);
+
+        glBindVertexArray(VAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+
+        constexpr GLsizei stride = 11 * sizeof(float);
+
+        // Position (0)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
+        glEnableVertexAttribArray(0);
+
+        // Color (1)
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+
+        // UV (2)
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(6 * sizeof(float)));
+        glEnableVertexAttribArray(2);
+
+        // Normal (3)
+        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, stride, (void*)(8 * sizeof(float)));
+        glEnableVertexAttribArray(3);
+
+        glBindVertexArray(0);
+
+        // Save mesh data
+        ModelData data;
+        data.VAO = VAO;
+        data.indexCount = static_cast<GLsizei>(indices.size());
+        data.materialIndex = mesh->mMaterialIndex; // for texture binding later
+        modelMeshes.push_back(data);
+    }
+
+    return modelMeshes;
+}
+
 ModelData createSphere(float radius, unsigned int sectorCount = 36, unsigned int stackCount = 18) {
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
@@ -813,6 +915,7 @@ int main(int argc, char*argv[])
     ModelData lightPoleData = loadModelWithAssimp("Models/Light Pole.obj");
     // Load the grandstand model using the Assimp loader
     ModelData grandstandData = loadModelWithAssimp("Models/generic medium.obj");
+    std::vector<ModelData> boardData = loadMultiMeshModels("Models/board.obj");
     ModelData sunData = createSphere(1.0f);
 
     // Main loop
@@ -1173,6 +1276,98 @@ int main(int argc, char*argv[])
         glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
         glUniformMatrix4fv(instanceMatrixLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
 
+        // Draw boards
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, birdTexture);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
+
+        // --- Draw shadows for board 1 ---
+        glm::mat4 boardModel1 = glm::translate(glm::mat4(1.0f), glm::vec3(27.0f, 3.0f, 0.0f)) *
+                                glm::scale(glm::mat4(1.0f), glm::vec3(3.0f));
+
+        // Compute light direction (adjust as you do for poles)
+        glm::vec3 boardLightDir = headlightsOn ? glm::normalize(glm::vec3(0, 3, 0) - hlPos) : sunDir;
+        glm::mat4 boardShadow1 = makeShadowMatrix(boardLightDir, GRASS_Y, SHADOW_BIAS) * boardModel1;
+
+        // Setup shadow uniforms & state
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 1);
+        glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowPlaneY"), GRASS_Y);
+        glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowMinBias"), 0.0008f);
+
+        glDisable(GL_CULL_FACE);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(-2.0f, -2.0f);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthFunc(GL_LEQUAL);
+        glDepthMask(GL_FALSE);
+
+        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(boardShadow1));
+
+        // Draw all board meshes
+        for (const auto &mesh : boardData) {
+            glBindVertexArray(mesh.VAO);
+            glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, 0);
+        }
+
+        // Restore normal state
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glDepthFunc(GL_LESS);
+        glEnable(GL_CULL_FACE);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
+
+        // --- Draw normal boards for board 1 ---
+        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(boardModel1));
+
+        for (const auto &mesh : boardData) {
+            glBindVertexArray(mesh.VAO);
+            glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, 0);
+        }
+
+        // --- Repeat same for board 2 ---
+
+        glm::mat4 boardModel2 = glm::translate(glm::mat4(1.0f), glm::vec3(-27.0f, 3.0f, 0.0f)) *
+                                glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f)) *
+                                glm::scale(glm::mat4(1.0f), glm::vec3(3.0f));
+
+        glm::mat4 boardShadow2 = makeShadowMatrix(boardLightDir, GRASS_Y, SHADOW_BIAS) * boardModel2;
+
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 1);
+        glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowPlaneY"), GRASS_Y);
+        glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowMinBias"), 0.0008f);
+
+        glDisable(GL_CULL_FACE);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(-2.0f, -2.0f);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthFunc(GL_LEQUAL);
+        glDepthMask(GL_FALSE);
+
+        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(boardShadow2));
+
+        for (const auto &mesh : boardData) {
+            glBindVertexArray(mesh.VAO);
+            glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, 0);
+        }
+
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glDepthFunc(GL_LESS);
+        glEnable(GL_CULL_FACE);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
+
+        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(boardModel2));
+
+        for (const auto &mesh : boardData) {
+            glBindVertexArray(mesh.VAO);
+            glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, 0);
+        }
+
+        
 
         // Draw circular road with curbs
         glActiveTexture(GL_TEXTURE0);
