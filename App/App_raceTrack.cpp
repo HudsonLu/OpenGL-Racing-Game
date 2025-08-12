@@ -619,7 +619,7 @@ int main(int argc, char*argv[])
     glfwWindowHint(GLFW_STENCIL_BITS, 8);
 
     // Create Window and rendering context using GLFW, resolution is 800x600
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "Project", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "Race Track", NULL, NULL);
     if (window == NULL)
     {
         std::cerr << "Failed to create GLFW window" << std::endl;
