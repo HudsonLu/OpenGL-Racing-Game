@@ -1048,9 +1048,6 @@ int main(int argc, char*argv[])
         glm::mat4 floorModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.01f, 0.0f))
                      * glm::scale(glm::mat4(1.0f),  glm::vec3(40.0f, 0.02f, 140.0f));
 
-        
-
-
         // Set uniforms
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "camMatrix"), 1, GL_FALSE, glm::value_ptr(camMatrix));
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(floorModel));
@@ -1075,12 +1072,53 @@ int main(int argc, char*argv[])
 
         // Draw instanced trees
         glActiveTexture(GL_TEXTURE0);
-        //glBindTexture(GL_TEXTURE_2D, treeTextureID);
+        glBindTexture(GL_TEXTURE_2D, mountainTextureID);
         glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
         glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
         glUniformMatrix4fv(instanceMatrixLoc, (GLsizei)treeTransforms.size(), GL_FALSE, glm::value_ptr(treeTransforms[0]));
         glBindVertexArray(treeData.VAO);
         glDrawElementsInstanced(GL_TRIANGLES, treeData.indexCount, GL_UNSIGNED_INT, 0, (GLsizei)treeTransforms.size());
+        glUniformMatrix4fv(instanceMatrixLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
+
+        // --- Prepare shadow transforms ---
+        std::vector<glm::mat4> treeShadowTransforms;
+        treeShadowTransforms.reserve(treeTransforms.size());
+
+        glm::vec3 treeLightDir = headlightsOn
+            ? glm::normalize(glm::vec3(0.0f, 3.0f, 0.0f) - hlPos) // from headlights
+            : moonDir; // from moon
+
+        for (const auto& t : treeTransforms) {
+            glm::mat4 shadowMat = makeShadowMatrix(treeLightDir, GRASS_Y, SHADOW_BIAS) * t;
+            treeShadowTransforms.push_back(shadowMat);
+        }
+
+        // --- Draw instanced tree shadows ---
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 1);
+        glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowPlaneY"), GRASS_Y);
+        glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowMinBias"), 0.0008f);
+
+        // Shadow rendering state
+        glDisable(GL_CULL_FACE);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(-2.0f, -2.0f);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthFunc(GL_LEQUAL);
+        glDepthMask(GL_FALSE);
+
+        // Send shadow instance transforms
+        glUniformMatrix4fv(instanceMatrixLoc, treeTransforms.size(), GL_FALSE, glm::value_ptr(treeShadowTransforms[0]));
+
+        glDrawElementsInstanced(GL_TRIANGLES, treeData.indexCount, GL_UNSIGNED_INT, 0, treeTransforms.size());
+
+                // --- Restore state ---
+        glDepthMask(GL_TRUE);
+        glEnable(GL_CULL_FACE);
+        glDisable(GL_BLEND);
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glDepthFunc(GL_LESS);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
         glUniformMatrix4fv(instanceMatrixLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
 
 

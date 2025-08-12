@@ -663,7 +663,7 @@ int main(int argc, char*argv[])
     glm::vec3 sunColor = glm::vec3(1.0f, 0.95f, 0.6f);
     // Shadow plane heights and bias
     const float ROAD_Y      = 0.0f;     // asphalt
-    const float GRASS_Y     = -0.01f;   // your grass floor
+    const float GRASS_Y     = -0.01f;   // grass floor
     const float SHADOW_BIAS = 0.002f;    // lift to avoid z-fighting
 
 
@@ -760,7 +760,6 @@ int main(int argc, char*argv[])
     ModelData hillData = loadModelWithAssimp("Models/part.obj");
     ModelData treeData = loadModelWithAssimp("Models/Tree1.obj");
     ModelData lightPoleData = loadModelWithAssimp("Models/Light Pole.obj");
-    // Load the grandstand model using the Assimp loader
     ModelData grandstandData = loadModelWithAssimp("Models/generic medium.obj");
     ModelData sunData = createSphere(1.0f);
 
@@ -823,7 +822,7 @@ int main(int argc, char*argv[])
         // derive car center from rear axle
         glm::vec3 carPos = rearPos + carForward * (WHEELBASE * 0.5f);
 
-        // (optional) also make right/up if you need them
+        // make right/up if needed
         glm::vec3 carRight = glm::normalize(glm::cross(glm::vec3(0,1,0), carForward));
         glm::vec3 carUp(0,1,0);
 
@@ -1069,17 +1068,6 @@ int main(int argc, char*argv[])
             glDrawElements(GL_TRIANGLES, hillData.indexCount, GL_UNSIGNED_INT, 0);
         }
 
-        // Draw instanced trees
-        glActiveTexture(GL_TEXTURE0);
-        //glBindTexture(GL_TEXTURE_2D, treeTextureID);
-        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
-        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
-        glUniformMatrix4fv(instanceMatrixLoc, (GLsizei)treeTransforms.size(), GL_FALSE, glm::value_ptr(treeTransforms[0]));
-        glBindVertexArray(treeData.VAO);
-        glDrawElementsInstanced(GL_TRIANGLES, treeData.indexCount, GL_UNSIGNED_INT, 0, (GLsizei)treeTransforms.size());
-        glUniformMatrix4fv(instanceMatrixLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
-
-
         // // Draw the road
         
         // Activate and bind your road texture
@@ -1312,7 +1300,6 @@ int main(int argc, char*argv[])
         }
 
         // Restore
-        // Restore
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
         glDisable(GL_POLYGON_OFFSET_FILL);
@@ -1407,6 +1394,57 @@ int main(int argc, char*argv[])
             glDisable(GL_BLEND);
         }
 
+        // Draw instanced trees
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, mountainTextureID);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "textureSampler"), 0);
+        glUniformMatrix4fv(glGetUniformLocation(texturedShaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
+        glUniformMatrix4fv(instanceMatrixLoc, (GLsizei)treeTransforms.size(), GL_FALSE, glm::value_ptr(treeTransforms[0]));
+        
+        glBindVertexArray(treeData.VAO);
+        glDrawElementsInstanced(GL_TRIANGLES, treeData.indexCount, GL_UNSIGNED_INT, 0, (GLsizei)treeTransforms.size());
+        glUniformMatrix4fv(instanceMatrixLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
+
+        // --- Prepare shadow transforms ---
+        std::vector<glm::mat4> treeShadowTransforms;
+        treeShadowTransforms.reserve(treeTransforms.size());
+
+        glm::vec3 treeLightDir = headlightsOn
+            ? glm::normalize(glm::vec3(0.0f, 3.0f, 0.0f) - hlPos) // from headlights
+            : sunDir; // from sun
+
+        for (const auto& t : treeTransforms) {
+            glm::mat4 shadowMat = makeShadowMatrix(treeLightDir, GRASS_Y, SHADOW_BIAS) * t;
+            treeShadowTransforms.push_back(shadowMat);
+        }
+
+        // --- Draw instanced tree shadows ---
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 1);
+        glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowPlaneY"), GRASS_Y);
+        glUniform1f(glGetUniformLocation(texturedShaderProgram, "uShadowMinBias"), 0.0008f);
+
+        // Shadow rendering state
+        glDisable(GL_CULL_FACE);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(-2.0f, -2.0f);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthFunc(GL_LEQUAL);
+        glDepthMask(GL_FALSE);
+
+        // Send shadow instance transforms
+        glUniformMatrix4fv(instanceMatrixLoc, treeTransforms.size(), GL_FALSE, glm::value_ptr(treeShadowTransforms[0]));
+
+        glDrawElementsInstanced(GL_TRIANGLES, treeData.indexCount, GL_UNSIGNED_INT, 0, treeTransforms.size());
+
+        // --- Restore state ---
+        glDepthMask(GL_TRUE);
+        glEnable(GL_CULL_FACE);
+        glDisable(GL_BLEND);
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glDepthFunc(GL_LESS);
+        glUniform1i(glGetUniformLocation(texturedShaderProgram, "uUseShadow"), 0);
+        glUniformMatrix4fv(instanceMatrixLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
 
 
         // // Draw the Bird model
