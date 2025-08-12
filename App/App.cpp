@@ -884,22 +884,26 @@ int main(int argc, char*argv[])
             cameraChase = true;   // new chase mode
         }
 
+        glm::vec3 camPosEye;
         if (cameraChase) {
             // “behind & a bit to the side” relative to the CAR, not the camera
             glm::vec3 up(0,1,0);
             glm::vec3 target = carPos + glm::vec3(0, 0.6f, 0);
             glm::vec3 eye    = target - glm::normalize(carForward) * 3.5f + glm::vec3(0,1,0) * 1.2f;
             view = glm::lookAt(eye, target + glm::normalize(carForward) * 2.0f, glm::vec3(0,1,0));
+            camPosEye = eye;
         } else if (cameraFirstPerson){
             view = lookAt(cameraPos,  // eye
                                  cameraPos + cameraFront,  // center
                                  cameraUp ); // up
+            camPosEye = cameraPos;
         } else{
             float radius = 5.0f;
             glm::vec3 position = cameraPos - radius * cameraFront; // position is on a sphere around the camera position
             view = lookAt(position,  // eye
                                  position + cameraFront,  // center
                                  cameraUp ); // up
+            camPosEye = position;
         }
 
         int winW=0, winH=0; glfwGetFramebufferSize(window, &winW, &winH);
@@ -938,7 +942,7 @@ int main(int argc, char*argv[])
         auto LOC = [&](const char* name){ return glGetUniformLocation(texturedShaderProgram, name); };
 
         // camera (for specular in shader)
-        glUniform3f(LOC("camPos"), cameraPos.x, cameraPos.y, cameraPos.z);
+        glUniform3f(LOC("camPos"), camPosEye.x, camPosEye.y, camPosEye.z);
 
         // toggle
         glUniform1i(LOC("uUseHeadlights"), headlightsOn ? 1 : 0);
@@ -993,7 +997,7 @@ int main(int argc, char*argv[])
             glUniform1i(textureSamplerLocation, 0);
 
             // Compute model matrix with billboarding, translation, scale, etc.
-            glm::vec3 cloudToCamera = glm::normalize(cameraPos - cloud.position);
+            glm::vec3 cloudToCamera = glm::normalize(camPosEye - cloud.position);
             glm::mat4 billboardRotation = glm::inverse(glm::lookAt(glm::vec3(0), cloudToCamera, glm::vec3(0, 1, 0)));
             billboardRotation[3] = glm::vec4(0, 0, 0, 1);
             glm::mat4 model = glm::translate(glm::mat4(1.0f), cloud.position) *
