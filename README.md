@@ -2,6 +2,7 @@
 
 A real-time 3D racing environment built using **modern OpenGL (3.3 core profile)**.  
 Features a drivable car, multiple track scenes, animated environment, and dynamic lighting.
+May experience lag on lower-performance computers.
 
 ---
 
