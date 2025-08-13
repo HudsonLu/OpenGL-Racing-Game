@@ -36,6 +36,18 @@ Features a drivable car, multiple track scenes, animated environment, and dynami
 
 ---
 
+## Screenshots
+
+<p float="left">
+  <img src="images/1.png" width="180" />
+  <img src="images/2.png" width="180" />
+  <img src="images/3.png" width="180" />
+  <img src="images/4.png" width="180" />
+  <img src="images/5.png" width="180" />
+</p>
+
+---
+
 ## Running the Game
 
 1. Compile and ensure all dependencies are installed (see [Dependencies](#dependencies)).  
